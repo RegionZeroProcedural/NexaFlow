@@ -145,5 +145,3 @@ A source-backed **CFG** describes execution alternatives. A **DFG** conservative
 ## Verification
 
 Source/JSX parsing and local smoke checks exercised importing, simulation, conditions, backward provenance, assert failures, source preservation, edited-expression export and opaque-operation handling. The browser UI was not run in an interactive browser here because the npm registry/dependencies were unavailable in the build environment. Install the dependencies and run `npm run test:ci` and `npm run build` in your development environment before shipping.
-#   N e x a F l o w  
- 
