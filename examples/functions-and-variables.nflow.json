@@ -1,0 +1,224 @@
+{
+  "name": "Typed data + generated function",
+  "nodes": [
+    {
+      "id": "dv-start",
+      "type": "start",
+      "x": 35,
+      "y": 270,
+      "title": "Begin checkout",
+      "description": "Evaluate the purchase"
+    },
+    {
+      "id": "dv-price",
+      "type": "variable",
+      "x": 25,
+      "y": 550,
+      "title": "Base price",
+      "description": "Price in dollars",
+      "dataType": "number",
+      "dataValue": 70
+    },
+    {
+      "id": "dv-tax",
+      "type": "variable",
+      "x": 25,
+      "y": 740,
+      "title": "Tax rate",
+      "description": "Tax as a decimal",
+      "dataType": "number",
+      "dataValue": 0.1
+    },
+    {
+      "id": "dv-limit",
+      "type": "variable",
+      "x": 380,
+      "y": 925,
+      "title": "Free shipping threshold",
+      "description": "Threshold for free shipping",
+      "dataType": "number",
+      "dataValue": 75
+    },
+    {
+      "id": "dv-function",
+      "type": "function",
+      "x": 382,
+      "y": 550,
+      "title": "Calculate invoice",
+      "description": "Local variables and real, typed outputs",
+      "functionName": "calculateInvoice",
+      "language": "python",
+      "shape": "hexagon",
+      "inputCount": 2,
+      "outputCount": 2,
+      "portTypes": {
+        "in1": "number",
+        "in2": "number",
+        "out1": "number",
+        "out2": "boolean"
+      },
+      "code": "subtotal = in1 * (1 + in2)\nout1 = subtotal\nout2 = subtotal >= 75"
+    },
+    {
+      "id": "dv-compare",
+      "type": "compare",
+      "x": 755,
+      "y": 730,
+      "title": "Threshold reached?",
+      "description": "Compare function output and variable",
+      "comparison": ">="
+    },
+    {
+      "id": "dv-decision",
+      "type": "conditional",
+      "x": 1065,
+      "y": 255,
+      "title": "Offer free shipping?",
+      "description": "Use a real computed Boolean",
+      "inputCount": 1,
+      "conditionMode": "and"
+    },
+    {
+      "id": "dv-yes",
+      "type": "process",
+      "x": 1420,
+      "y": 122,
+      "title": "Free delivery",
+      "description": "TODO: choose shipping service"
+    },
+    {
+      "id": "dv-no",
+      "type": "process",
+      "x": 1420,
+      "y": 403,
+      "title": "Add shipping",
+      "description": "TODO: add delivery cost"
+    },
+    {
+      "id": "dv-complete",
+      "type": "end",
+      "x": 1755,
+      "y": 122,
+      "title": "Order complete",
+      "description": "Done"
+    },
+    {
+      "id": "dv-on-hold",
+      "type": "end",
+      "x": 1755,
+      "y": 403,
+      "title": "Shipping added",
+      "description": "Done"
+    },
+    {
+      "id": "dv-monitor",
+      "type": "output",
+      "x": 1070,
+      "y": 676,
+      "title": "Calculated total",
+      "description": "Number passes over the wire"
+    },
+    {
+      "id": "dv-watch",
+      "type": "output",
+      "x": 1070,
+      "y": 890,
+      "title": "Function approval",
+      "description": "Boolean output 2"
+    },
+    {
+      "id": "dv-note",
+      "type": "comment",
+      "x": 30,
+      "y": 52,
+      "title": "FUNCTIONS & VARIABLES",
+      "description": "The Function receives two numeric Variable values through wires, computes two typed outputs, and generates a real callable function in JS, TS or Python. Edit the Function body and export code to see language conversion."
+    }
+  ],
+  "edges": [
+    {
+      "id": "dv-e0",
+      "source": "dv-start",
+      "sourcePort": "out",
+      "target": "dv-decision",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e1",
+      "source": "dv-price",
+      "sourcePort": "out",
+      "target": "dv-function",
+      "targetPort": "in1"
+    },
+    {
+      "id": "dv-e2",
+      "source": "dv-tax",
+      "sourcePort": "out",
+      "target": "dv-function",
+      "targetPort": "in2"
+    },
+    {
+      "id": "dv-e3",
+      "source": "dv-function",
+      "sourcePort": "out1",
+      "target": "dv-compare",
+      "targetPort": "a"
+    },
+    {
+      "id": "dv-e4",
+      "source": "dv-limit",
+      "sourcePort": "out",
+      "target": "dv-compare",
+      "targetPort": "b"
+    },
+    {
+      "id": "dv-e5",
+      "source": "dv-function",
+      "sourcePort": "out1",
+      "target": "dv-monitor",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e6",
+      "source": "dv-function",
+      "sourcePort": "out2",
+      "target": "dv-watch",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e7",
+      "source": "dv-compare",
+      "sourcePort": "out",
+      "target": "dv-decision",
+      "targetPort": "condition"
+    },
+    {
+      "id": "dv-e8",
+      "source": "dv-decision",
+      "sourcePort": "true",
+      "target": "dv-yes",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e9",
+      "source": "dv-decision",
+      "sourcePort": "false",
+      "target": "dv-no",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e10",
+      "source": "dv-yes",
+      "sourcePort": "out",
+      "target": "dv-complete",
+      "targetPort": "in"
+    },
+    {
+      "id": "dv-e11",
+      "source": "dv-no",
+      "sourcePort": "out",
+      "target": "dv-on-hold",
+      "targetPort": "in"
+    }
+  ]
+}

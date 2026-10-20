@@ -1,0 +1,2 @@
+import React from 'react';
+export default function ConditionalNode({ condition, inputCount = 1, mode = 'and' }) { return <div className="condition-body"><span className="condition-expression">IF <strong>{inputCount > 1 ? `${mode.toUpperCase()}(${inputCount} tests)` : 'condition'}</strong></span><span className={`result-pill ${condition === null ? 'unknown' : condition ? 'true' : 'false'}`}>{condition === null ? '—' : condition ? 'TRUE' : 'FALSE'}</span></div>; }

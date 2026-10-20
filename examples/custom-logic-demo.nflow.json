@@ -1,0 +1,220 @@
+{
+  "name": "Custom approval policy",
+  "nodes": [
+    {
+      "id": "ex-start",
+      "type": "start",
+      "x": 38,
+      "y": 247,
+      "title": "Review application",
+      "description": "Check the incoming application"
+    },
+    {
+      "id": "ex-decision",
+      "type": "conditional",
+      "x": 723,
+      "y": 240,
+      "title": "All checks passed?",
+      "description": "Two independent tests combined",
+      "inputCount": 2,
+      "conditionMode": "and"
+    },
+    {
+      "id": "ex-yes",
+      "type": "process",
+      "x": 1030,
+      "y": 105,
+      "title": "Approve application",
+      "description": "TODO: wire business behavior"
+    },
+    {
+      "id": "ex-no",
+      "type": "process",
+      "x": 1030,
+      "y": 412,
+      "title": "Request review",
+      "description": "TODO: manual review queue"
+    },
+    {
+      "id": "ex-done",
+      "type": "end",
+      "x": 1330,
+      "y": 105,
+      "title": "Approved",
+      "description": "Application approved"
+    },
+    {
+      "id": "ex-stop",
+      "type": "end",
+      "x": 1330,
+      "y": 412,
+      "title": "Pending",
+      "description": "Waiting for manual review"
+    },
+    {
+      "id": "ex-a",
+      "type": "boolean",
+      "x": 38,
+      "y": 536,
+      "title": "Identity verified",
+      "description": "Test first input",
+      "value": true
+    },
+    {
+      "id": "ex-b",
+      "type": "boolean",
+      "x": 38,
+      "y": 740,
+      "title": "Within threshold",
+      "description": "Test second input",
+      "value": true
+    },
+    {
+      "id": "ex-c",
+      "type": "boolean",
+      "x": 38,
+      "y": 940,
+      "title": "Account active",
+      "description": "Test third input",
+      "value": true
+    },
+    {
+      "id": "ex-code",
+      "type": "custom",
+      "x": 375,
+      "y": 619,
+      "title": "Policy function",
+      "description": "Boolean functions in user-authored source",
+      "inputCount": 3,
+      "outputCount": 2,
+      "language": "javascript",
+      "shape": "hexagon",
+      "code": "out1 = in1 && in2 && in3;\nout2 = in1 && !in2;"
+    },
+    {
+      "id": "ex-gate",
+      "type": "and",
+      "x": 718,
+      "y": 828,
+      "title": "3-input gate",
+      "description": "3 inputs without chaining",
+      "inputCount": 3
+    },
+    {
+      "id": "ex-watch",
+      "type": "output",
+      "x": 1030,
+      "y": 788,
+      "title": "Escalation signal",
+      "description": "Out2 from the custom policy"
+    },
+    {
+      "id": "ex-note",
+      "type": "comment",
+      "x": 44,
+      "y": 42,
+      "title": "CUSTOM LOGIC DEMO",
+      "description": "Select the hexagon to edit its source, input/output count, language, and shape. Select the AND gate to change its input count. File → Export code skeleton to generate JS/TS/Python."
+    }
+  ],
+  "edges": [
+    {
+      "id": "xe1",
+      "source": "ex-start",
+      "sourcePort": "out",
+      "target": "ex-decision",
+      "targetPort": "in"
+    },
+    {
+      "id": "xe2",
+      "source": "ex-decision",
+      "sourcePort": "true",
+      "target": "ex-yes",
+      "targetPort": "in"
+    },
+    {
+      "id": "xe3",
+      "source": "ex-decision",
+      "sourcePort": "false",
+      "target": "ex-no",
+      "targetPort": "in"
+    },
+    {
+      "id": "xe4",
+      "source": "ex-yes",
+      "sourcePort": "out",
+      "target": "ex-done",
+      "targetPort": "in"
+    },
+    {
+      "id": "xe5",
+      "source": "ex-no",
+      "sourcePort": "out",
+      "target": "ex-stop",
+      "targetPort": "in"
+    },
+    {
+      "id": "xc0",
+      "source": "ex-a",
+      "sourcePort": "out",
+      "target": "ex-code",
+      "targetPort": "in1"
+    },
+    {
+      "id": "xc1",
+      "source": "ex-b",
+      "sourcePort": "out",
+      "target": "ex-code",
+      "targetPort": "in2"
+    },
+    {
+      "id": "xc2",
+      "source": "ex-c",
+      "sourcePort": "out",
+      "target": "ex-code",
+      "targetPort": "in3"
+    },
+    {
+      "id": "xg0",
+      "source": "ex-a",
+      "sourcePort": "out",
+      "target": "ex-gate",
+      "targetPort": "a"
+    },
+    {
+      "id": "xg1",
+      "source": "ex-b",
+      "sourcePort": "out",
+      "target": "ex-gate",
+      "targetPort": "b"
+    },
+    {
+      "id": "xg2",
+      "source": "ex-c",
+      "sourcePort": "out",
+      "target": "ex-gate",
+      "targetPort": "c"
+    },
+    {
+      "id": "xe6",
+      "source": "ex-code",
+      "sourcePort": "out1",
+      "target": "ex-decision",
+      "targetPort": "condition"
+    },
+    {
+      "id": "xe7",
+      "source": "ex-gate",
+      "sourcePort": "out",
+      "target": "ex-decision",
+      "targetPort": "condition2"
+    },
+    {
+      "id": "xe8",
+      "source": "ex-code",
+      "sourcePort": "out2",
+      "target": "ex-watch",
+      "targetPort": "in"
+    }
+  ]
+}

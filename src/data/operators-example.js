@@ -1,0 +1,32 @@
+/** v0.6 showcase: math data path and separate EXEC/DONE Boolean control path. */
+export const operatorsExampleGraph = {
+  name: 'Function EXEC / DONE + Operators',
+  nodes: [
+    { id: 'op-start', type: 'start', x: 40, y: 70, title: 'Checkout started', description: 'Begin the control flow' },
+    { id: 'op-trigger', type: 'boolean', x: 28, y: 320, title: 'Execute calculation?', description: 'Toggle TRUE to invoke the Function', value: true },
+    { id: 'op-price', type: 'variable', x: 30, y: 545, title: 'Unit price', description: 'Each unit costs $35', dataType: 'number', dataValue: 35 },
+    { id: 'op-quantity', type: 'variable', x: 30, y: 785, title: 'Quantity', description: 'Number of purchased units', dataType: 'number', dataValue: 2 },
+    { id: 'op-tax', type: 'variable', x: 360, y: 845, title: 'Sales tax', description: 'Tax decimal', dataType: 'number', dataValue: 0.10 },
+    { id: 'op-multiply', type: 'multiply', x: 365, y: 545, title: 'Price × quantity', description: 'Transforms two variables into a subtotal' },
+    { id: 'op-function', type: 'function', x: 740, y: 435, title: 'Calculate invoice', description: 'Executes only if EXEC receives TRUE', triggerMode: 'signal', functionName: 'invoice', language: 'javascript', shape: 'hexagon', inputCount: 2, outputCount: 2, portTypes: { in1: 'number', in2: 'number', out1: 'number', out2: 'boolean' }, code: 'total = in1\ntotal = total + in1 * in2\nout1 = total\nout2 = total >= 75' },
+    { id: 'op-total-watch', type: 'watch', x: 1135, y: 575, title: 'Waterfall: total', description: 'Watch the computed invoice total', check: 'range', min: 0, max: 100, expected: 'true', expectedType: 'number' },
+    { id: 'op-done-watch', type: 'watch', x: 1135, y: 345, title: 'Waterfall: DONE', description: 'TRUE only once Function completes successfully', check: 'type', min: 0, max: 100, expected: 'true', expectedType: 'boolean' },
+    { id: 'op-conditional', type: 'conditional', x: 1490, y: 215, title: 'Execution complete?', description: 'Decision receives DONE Boolean', inputCount: 1, conditionMode: 'and' },
+    { id: 'op-success', type: 'end', x: 1820, y: 90, title: 'Invoice ready', description: 'DONE was TRUE' },
+    { id: 'op-failure', type: 'end', x: 1820, y: 375, title: 'Not executed', description: 'EXEC was FALSE or the Function failed' },
+    { id: 'op-comment', type: 'comment', x: 20, y: 1050, title: 'EXEC / DONE WALKTHROUGH', description: 'Change the Boolean switch. TRUE triggers the safe Function body, passing the multiplied variables into in1 and the tax rate into in2. DONE turns TRUE after the function body completes, which routes the Decision to Invoice ready. FALSE leaves its data outputs unknown and routes to Not executed. Watch observations appear in the live waterfall at each Function assignment (subtotal → taxed total → out1). Select the Watch to filter by output or named local.' },
+  ],
+  edges: [
+    { id: 'op-e0', source: 'op-start', sourcePort: 'out', target: 'op-conditional', targetPort: 'in' },
+    { id: 'op-e1', source: 'op-trigger', sourcePort: 'out', target: 'op-function', targetPort: 'execute' },
+    { id: 'op-e2', source: 'op-price', sourcePort: 'out', target: 'op-multiply', targetPort: 'a' },
+    { id: 'op-e3', source: 'op-quantity', sourcePort: 'out', target: 'op-multiply', targetPort: 'b' },
+    { id: 'op-e4', source: 'op-multiply', sourcePort: 'out', target: 'op-function', targetPort: 'in1' },
+    { id: 'op-e5', source: 'op-tax', sourcePort: 'out', target: 'op-function', targetPort: 'in2' },
+    { id: 'op-e6', source: 'op-function', sourcePort: 'out1', target: 'op-total-watch', targetPort: 'in' },
+    { id: 'op-e7', source: 'op-function', sourcePort: 'done', target: 'op-done-watch', targetPort: 'in' },
+    { id: 'op-e8', source: 'op-done-watch', sourcePort: 'out', target: 'op-conditional', targetPort: 'condition' },
+    { id: 'op-e9', source: 'op-conditional', sourcePort: 'true', target: 'op-success', targetPort: 'in' },
+    { id: 'op-e10', source: 'op-conditional', sourcePort: 'false', target: 'op-failure', targetPort: 'in' },
+  ],
+};

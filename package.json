@@ -1,0 +1,30 @@
+{
+  "name": "nexa-flow",
+  "version": "0.8.0",
+  "private": true,
+  "description": "Nexa Flow \u2014 source-backed flow visualization, safe simulation, typed operators, robust bidirectional node wiring, tidy port layout, NEXT-compatible Function EXEC/DONE sequencing, and watch waterfall",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "test:ci": "react-scripts test --watch=false --runInBand"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "5.0.1"
+  },
+  "devDependencies": {},
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
