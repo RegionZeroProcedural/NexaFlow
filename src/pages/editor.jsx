@@ -28,6 +28,8 @@ import FunctionSearch from '../components/function-search';
 import { buildProject, selectProjectFiles } from '../scripts/microscope/project-index';
 import { buildCallBoard, boardNodeId } from '../scripts/microscope/board';
 import useEdgeReveal from '../scripts/use-edge-reveal';
+import { traceFunction } from '../scripts/microscope/interpreter';
+import { heatmapFromSimulation, heatmapFromTrace, boardWatchpoints, watchSamplesFromTrace } from '../scripts/heatmap';
 
 const STORAGE_KEY = 'nexa-flow:workspace:v1';
 const PROJECT_STORAGE_KEY = 'nexa-flow:project:v1';
@@ -149,6 +151,7 @@ export default function Editor() {
   const [projectProgress, setProjectProgress] = useState('');
   const [projectError, setProjectError] = useState('');
   const [microscopeFn, setMicroscopeFn] = useState(null);
+  const [argTexts, setArgTexts] = useState({});
   const projectRef = useRef(null);
   projectRef.current = project;
   const topToolbar = useEdgeReveal(toolsPinned);
@@ -341,7 +344,7 @@ export default function Editor() {
   }, []);
   const backgroundPointerDown = useCallback(e => {
     if (e.button !== 0 && e.button !== 1) return;
-    if (e.target.closest?.('[data-node-id], .edge-click-target, .mini-map, .canvas-title-overlay, .toolbar-top, .simulator-controls, .app-toast, .empty-canvas-prompt, .canvas-project-bar, .reveal-tab')) return;
+    if (e.target.closest?.('[data-node-id], .edge-click-target, .mini-map, .canvas-title-overlay, .toolbar-top, .simulator-controls, .app-toast, .empty-canvas-prompt, .canvas-project-bar, .reveal-tab, .exit-simulation-button')) return;
     if (pendingConnectionRef.current) clearConnection();
     if (e.button === 0 && modeRef.current === 'select' && !spaceRef.current) setSelection(null);
     dragRef.current = { kind: 'pan', startX: e.clientX, startY: e.clientY, pan: { ...panRef.current } };
@@ -439,7 +442,33 @@ export default function Editor() {
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', cancelled); };
   }, [replaceGraph, toWorld, commitPair, clearConnection]);
 
+  const launchProjectRun = useCallback((initialSteps, autoplay) => {
+    // Call boards run the focused project function in the sandboxed
+    // interpreter; board playback steps through each function call.
+    const g = graphRef.current, current = projectRef.current;
+    const fnId = g.projectBoard.focusId;
+    const fn = current.functions[fnId];
+    const result = traceFunction(current, fnId, (argTexts[fnId] || []).slice(0, fn.params.length));
+    const onBoard = new Set(g.nodes.map(n => n.id));
+    const trace = [];
+    result.events.forEach((e, i) => {
+      if (e.k !== 'enter' || !onBoard.has(boardNodeId(e.fn))) return;
+      trace.push({ id: `call-${i}`, nodeId: boardNodeId(e.fn), title: current.functions[e.fn]?.name || e.name, type: 'project-call', detail: `${current.functions[e.fn]?.name || e.name}(${(e.args || []).map(a => a.s).join(', ')})`, eventIndex: i });
+    });
+    const samples = watchSamplesFromTrace(result.events, boardWatchpoints(g));
+    const issues = [result.halted, result.error, ...result.notes].filter(Boolean);
+    const simulationResult = { trace, issues, events: [], values: {}, conditions: {}, functionCompletions: [], functionChanges: [], waterfallSamples: samples, projectResult: result };
+    const steps = Math.min(trace.length, initialSteps);
+    setSimulation(simulationResult);
+    setVisibleSteps(steps);
+    setWaterfallRevealed(steps);
+    setWaterfallRun({ hasRun: true, kind: 'project', name: g.name, samples, total: result.events.length, unit: 'event', heatmap: heatmapFromTrace(result.events, current), stepEvents: trace.map(item => item.eventIndex) });
+    setPlaying(autoplay && steps < trace.length);
+    setRunId(n => n + 1);
+    notify(result.halted ? `Stopped: ${result.halted}` : result.error ? `${fn.name}() finished with ${result.error}` : `${fn.name}() returned ${result.value?.s} · ${result.events.length.toLocaleString()} events, ${trace.length} calls on the board`, result.error || result.halted ? 'error' : 'success');
+  }, [argTexts, notify]);
   const launchSimulation = useCallback((initialSteps = 0, autoplay = true) => {
+    if (graphRef.current.projectBoard && projectRef.current?.functions[graphRef.current.projectBoard.focusId]) { launchProjectRun(initialSteps, autoplay); return; }
     // The interpreter calculates a bounded trace without executing user code.
     // Playback then reveals one step and its Watch captures at a time.
     const result = prepareWaterfallRun(graphRef.current, simulateControlFlow(graphRef.current));
@@ -447,11 +476,11 @@ export default function Editor() {
     setSimulation(result);
     setVisibleSteps(steps);
     setWaterfallRevealed(steps);
-    setWaterfallRun({ hasRun: true, name: graphRef.current.name, samples: result.waterfallSamples, total: result.trace.length });
+    setWaterfallRun({ hasRun: true, kind: 'flow', name: graphRef.current.name, samples: result.waterfallSamples, total: result.trace.length, unit: 'step', heatmap: heatmapFromSimulation(graphRef.current, result) });
     setPlaying(autoplay && steps < result.trace.length);
     setRunId(n => n + 1);
     notify(result.trace.length ? `Simulation started · ${result.trace.length} replay steps` : 'No runnable steps found', result.issues.length ? 'info' : 'success');
-  }, [notify]);
+  }, [notify, launchProjectRun]);
   const run = useCallback(() => launchSimulation(0, true), [launchSimulation]);
   const step = useCallback(() => {
     if (!simulation || visibleSteps >= simulation.trace.length) launchSimulation(1, false);
@@ -460,6 +489,15 @@ export default function Editor() {
   // Reset clears the live cursor, not the collected waterfall. The previous run
   // remains inspectable until a fresh Run/Step/Play is started.
   const reset = useCallback(() => { setSimulation(null); setVisibleSteps(0); setPlaying(false); }, []);
+  // Leave the replay entirely: no executing/visited highlights or provenance overlays.
+  const exitSimulationView = useCallback(() => { reset(); setOriginNodes([]); }, [reset]);
+  const seekWaterfall = useCallback(t => {
+    const runInfo = waterfallRun;
+    if (!runInfo || !simulation) return;
+    setPlaying(false);
+    if (runInfo.kind === 'project') { let k = 0; while (k < runInfo.stepEvents.length && runInfo.stepEvents[k] <= t) k++; setVisibleSteps(Math.max(1, k)); }
+    else setVisibleSteps(Math.min(simulation.trace.length, t + 1));
+  }, [waterfallRun, simulation]);
   useEffect(() => { if (simulation) setWaterfallRevealed(previous => Math.max(previous, visibleSteps)); }, [simulation, visibleSteps]);
   useEffect(() => {
     if (!playing || !simulation) return;
@@ -616,14 +654,22 @@ export default function Editor() {
   const displayById = new Map(displayNodes.map(node => [node.id, node]));
   const originSet = new Set(originNodes);
   const conditions = preview.conditions;
+  const waterfallPosition = (() => {
+    if (!waterfallRun?.hasRun) return null;
+    const shown = simulation ? visibleSteps : waterfallRevealed;
+    if (waterfallRun.kind === 'project') return shown >= waterfallRun.stepEvents.length ? waterfallRun.total : shown > 0 ? waterfallRun.stepEvents[shown - 1] + 1 : 0;
+    return shown;
+  })();
+  const boardWatches = useMemo(() => (graph.projectBoard ? boardWatchpoints(graph) : []), [graph]);
   return <div className="nexa-app"><Header projectName={graph.name} setProjectName={name => { const g = { ...graphRef.current, name }; graphRef.current = g; setGraph(g); }} actions={actions} onRun={run} lastSaved={lastSaved}/><div className="app-workspace"><ToolbarLeft nodeCount={graph.nodes.length} edgeCount={graph.edges.length} onAdd={addNode} onDragStart={(e, type) => { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('application/x-nexa-flow-node', type); e.dataTransfer.setData('text/plain', type); }} collapsed={leftCollapsed} setCollapsed={collapsed => { setLeftCollapsed(collapsed); requestAnimationFrame(fitView); }}/><main className="canvas-container"><div className={`flow-canvas ${mode === 'pan' || spaceHeld ? 'pan-mode' : ''} ${dragRef.current?.kind === 'connection' ? 'connecting-mode' : ''}`} ref={canvas} style={{ backgroundPosition: `${pan.x}px ${pan.y}px`, backgroundSize: `${24 * zoom}px ${24 * zoom}px` }} onPointerDown={backgroundPointerDown} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDrop={e => { e.preventDefault(); const type = e.dataTransfer.getData('application/x-nexa-flow-node'); if (NODE_TYPES[type]) addNode(type, toWorld(e.clientX, e.clientY)); }}>
       <div className="flow-stage" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>{graph.program?.dataEdges && graphView === 'data' && <svg className="data-edge-layer" width="4000" height="3000" style={{ overflow: 'visible', pointerEvents: 'none' }} aria-label="Static data dependencies">{graph.program.dataEdges.map((e, i) => { const a = displayById.get(e.source), b = displayById.get(e.target); if (!a || !b) return null; const x1 = a.x + NODE_TYPES[a.type].width / 2, y1 = a.y + getNodeHeight(a) / 2, x2 = b.x + NODE_TYPES[b.type].width / 2, y2 = b.y + getNodeHeight(b) / 2; return <g key={i}><path d={bezierPath({x:x1,y:y1},{x:x2,y:y2})} fill="none" stroke="#40bfc5" strokeWidth="2" strokeDasharray="7 5" opacity=".7"/><text x={(x1+x2)/2} y={(y1+y2)/2-7} fontSize="12" fill="#8ce8e7">{e.variable}</text></g>; })}</svg>}{graph.callLinks?.length > 0 && graphView !== 'data' && <svg className="call-link-layer" width="4000" height="3000" style={{ overflow: 'visible', pointerEvents: 'none' }} aria-label="Function call links">{graph.callLinks.map((link, i) => { const a = displayById.get(link.source), b = displayById.get(link.target); if (!a || !b) return null; const from = portPosition(a, 'done', 'out'), to = portPosition(b, 'execute', 'in'); if (!from || !to) return null; const back = to.x <= from.x; const d = back ? `M${from.x},${from.y} C${from.x + 120},${from.y - 160} ${to.x - 120},${to.y - 160} ${to.x},${to.y}` : bezierPath(from, to); return <g key={i} className="call-link"><path d={d}/>{link.count > 1 && <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 8}>×{link.count}</text>}</g>; })}</svg>}<Connectors nodes={displayNodes} edges={displayedEdges} selection={selection} onSelect={setSelection} passedEdges={passedEdges} activeEdge={activeEdge} preview={connection}/>{displayNodes.map(n => <CanvasNode key={n.id} node={n} selected={selection?.kind === 'node' && selection.id === n.id} visited={visitedNodes.includes(n.id) || originSet.has(n.id)} active={activeNode === n.id && Boolean(simulation)} value={preview.values[n.id] ?? null} condition={conditions[n.id] ?? null} onSelect={selectNode} onDragBegin={graphView === 'data' ? (e, id) => { e.preventDefault(); e.stopPropagation(); selectNode(id); } : handleNodeDragBegin} onPortBegin={graphView === 'data' ? (e) => {e.preventDefault(); e.stopPropagation();} : handlePortBegin} connectionAnchor={pendingPort} hoverTarget={connection?.target} functionDone={completedNodes.has(n.id)} onToggle={id => { const node = graphRef.current.nodes.find(item => item.id === id); if (node) updateNode(id, { value: !node.value }); }} onDoubleClick={id => { selectNode(id); setRightCollapsed(false); }} onRename={(id, title) => updateNode(id, { title })} onMicroscope={project ? setMicroscopeFn : null}/>)}</div>
       {connection && <div className="connection-hint" role="status">CONNECT · Drag onto a matching socket, or click either end first · Esc cancels</div>}
       <CanvasLabel name={graph.name} onFit={fitView} onRename={name => { const next = { ...graphRef.current, name }; graphRef.current = next; setGraph(next); }}/><div className={`top-reveal ${topToolbar.open ? 'is-open' : ''} ${toolsPinned ? 'is-pinned' : ''}`}><button ref={topToolbar.tabRef} type="button" className="reveal-tab top-tab" aria-expanded={topToolbar.open} aria-label="Canvas tools — hover to reveal, click to pin" onPointerEnter={topToolbar.reveal} onFocus={topToolbar.reveal} onClick={() => setToolsPinned(v => !v)}>⌄ Canvas tools{toolsPinned ? ' · pinned' : ''}</button><ToolbarTop toolbarRef={topToolbar.toolbarRef} mode={mode} setMode={setMode} undo={undo} redo={redo} canUndo={history.past.length > 0} canRedo={history.future.length > 0} fitView={fitView} zoomIn={() => zoomBy(1.18)} zoomOut={() => zoomBy(1 / 1.18)} zoom={zoom} snap={snap} setSnap={setSnap} onArrange={graph.program ? arrangeImportedGraph : null}/></div>
+      {simulation && <button type="button" className="exit-simulation-button" onClick={exitSimulationView} title="Clear the replay highlights and return to the normal editing view">✕ Exit simulation view</button>}
       <div className="canvas-project-bar">{project ? <><FunctionSearch project={project} onOpen={setMicroscopeFn} onShowOnBoard={showOnBoard}/><button type="button" className="canvas-project-button" title="Open the entry function under the microscope" onClick={() => setMicroscopeFn(project.rootId)}>🔬 {project.functions[project.rootId]?.name}()</button></> : <button type="button" className="canvas-project-button" onClick={openProjectImport}>🔬 Import a project folder to dissect its functions</button>}</div>
       {graph.nodes.length === 0 && <div className="empty-canvas-prompt"><div className="empty-canvas-orb"><Icon name="branch" size={35}/></div><h2>Your canvas is ready</h2><p>Add nodes from the library to start building your flow.</p><button type="button" className="primary-button" onClick={() => addNode('start')}><Icon name="plus" size={16}/> Add a start node</button></div>}
       {graph.program && <div className="graph-view-switch"><button type="button" className={graphView === 'control' ? 'active' : ''} onClick={() => setGraphView('control')}>Control flow</button><button type="button" className={graphView === 'data' ? 'active' : ''} onClick={() => setGraphView('data')}>Data dependencies</button><span>{graphView === 'data' ? 'Expanded operators / values · read-only · edit parent statement in Properties' : 'Execution branches'}</span></div>}<div className={`bottom-reveal ${bottomToolbar.open ? 'is-open' : ''} ${simPinned ? 'is-pinned' : ''}`}><button ref={bottomToolbar.tabRef} type="button" className="reveal-tab bottom-tab" aria-expanded={bottomToolbar.open} aria-label="Simulator controls — hover to reveal, click to pin" onPointerEnter={bottomToolbar.reveal} onFocus={bottomToolbar.reveal} onClick={() => setSimPinned(v => !v)}>⌃ Simulator {playing ? '• running' : ''}{simPinned ? ' · pinned' : ''}</button><div className="canvas-bottom-left" ref={bottomToolbar.toolbarRef}><div className="simulator-controls"><span className="sim-indicator"/><span className="simulator-controls-label">SIMULATOR</span><button type="button" className="small-run-button" onClick={run}><Icon name="play" size={14}/> Run</button><button type="button" onClick={() => { setPlaying(false); setVisibleSteps(v => Math.max(0, v - 1)); }} disabled={!simulation || visibleSteps <= 0} title="Rewind one step"><Icon name="chevronLeft" size={15}/></button><button type="button" onClick={step} title="Execute next step"><Icon name="arrowRight" size={16}/> Step</button><button type="button" onClick={() => { if (!simulation || visibleSteps >= simulation.trace.length) launchSimulation(0, true); else setPlaying(v => !v); }} title={playing ? 'Pause playback' : 'Play execution trace'}><Icon name={playing ? 'pause' : 'play'} size={15}/></button><button type="button" onClick={reset} title="Reset execution"><Icon name="rotate" size={15}/></button>{simulation && <><input aria-label="Execution replay position" title="Scrub simulation timeline" type="range" min={0} max={simulation.trace.length} value={visibleSteps} onChange={e => { setPlaying(false); setVisibleSteps(Number(e.target.value)); }} className="execution-timeline"/><span className="step-meter">{visibleSteps}/{simulation.trace.length}</span></>}</div></div></div>
       <MiniMap nodes={displayNodes} canvasSize={canvasSize} pan={pan} zoom={zoom} setPan={setPan}/><div className="canvas-shortcut-hint"><Icon name="hand" size={13}/> Space + drag to pan <span>·</span> Scroll to zoom</div>
       {toast && <div className={`app-toast toast-${toast.tone}`} role="status"><Icon name={toast.tone === 'error' ? 'alert' : toast.tone === 'success' ? 'check' : 'info'} size={16}/>{toast.text}<button type="button" aria-label="Dismiss" onClick={() => setToast(null)}><Icon name="close" size={14}/></button></div>}
-    </div></main><Inspector selection={selection} graph={graph} updateNode={updateNode} removeSelection={deleteSelection} duplicateNode={duplicateNode} preview={preview} simulation={simulation} visibleSteps={visibleSteps} onClearSelection={() => setSelection(null)} collapsed={rightCollapsed} setCollapsed={setRightCollapsed} runId={runId} updateProgram={updateProgram} jumpToNode={jumpToNode} highlightOrigin={originNodes} onHighlight={setOriginNodes}/></div><WaterfallInspector run={waterfallRun} revealedStep={waterfallRevealed} isPlaying={playing} collapsed={waterfallCollapsed} setCollapsed={setWaterfallCollapsed} onJump={jumpToNode}/>{projectDialog && <ProjectImportDialog close={() => setProjectDialog(false)} busy={projectBusy} progress={projectProgress} error={projectError} onChooseFolder={() => document.getElementById('import-project-folder')?.click()}/>}<input id="import-project-folder" type="file" multiple webkitdirectory="" directory="" onChange={onProjectFolder} hidden/>{project && microscopeFn && project.functions[microscopeFn] && <MicroscopePage project={project} initialFnId={microscopeFn} onClose={() => setMicroscopeFn(null)} onShowOnBoard={showOnBoard} notify={notify}/>}{sourceDraft && <SourceImportDialog draft={sourceDraft} close={() => setSourceDraft(null)} onImport={importSelectedFunction}/>}<input ref={sourceInput} type="file" multiple accept=".js,.mjs,text/javascript,application/javascript" onChange={onJavaScriptImport} hidden/><input id="import-js-folder" type="file" multiple webkitdirectory="" directory="" onChange={onJavaScriptImport} hidden/><input ref={fileInput} type="file" accept=".json,.nflow.json,application/json" onChange={onImport} hidden/>{codeExporterOpen && <CodeExportDialog graph={graph} close={() => setCodeExporterOpen(false)} download={doDownloadCode}/>}</div>;
+    </div></main><Inspector selection={selection} graph={graph} updateNode={updateNode} removeSelection={deleteSelection} duplicateNode={duplicateNode} preview={preview} simulation={simulation} visibleSteps={visibleSteps} onClearSelection={() => setSelection(null)} collapsed={rightCollapsed} setCollapsed={setRightCollapsed} runId={runId} updateProgram={updateProgram} jumpToNode={jumpToNode} highlightOrigin={originNodes} onHighlight={setOriginNodes}/></div><WaterfallInspector run={waterfallRun} cursor={waterfallPosition} isPlaying={playing} collapsed={waterfallCollapsed} setCollapsed={setWaterfallCollapsed} onJump={jumpToNode} onSeek={simulation ? seekWaterfall : null}/>{projectDialog && <ProjectImportDialog close={() => setProjectDialog(false)} busy={projectBusy} progress={projectProgress} error={projectError} onChooseFolder={() => document.getElementById('import-project-folder')?.click()}/>}<input id="import-project-folder" type="file" multiple webkitdirectory="" directory="" onChange={onProjectFolder} hidden/>{project && microscopeFn && project.functions[microscopeFn] && <MicroscopePage project={project} initialFnId={microscopeFn} onClose={() => setMicroscopeFn(null)} onShowOnBoard={showOnBoard} notify={notify} argTexts={argTexts} setArgTexts={setArgTexts} watchpoints={boardWatches}/>}{sourceDraft && <SourceImportDialog draft={sourceDraft} close={() => setSourceDraft(null)} onImport={importSelectedFunction}/>}<input ref={sourceInput} type="file" multiple accept=".js,.mjs,text/javascript,application/javascript" onChange={onJavaScriptImport} hidden/><input id="import-js-folder" type="file" multiple webkitdirectory="" directory="" onChange={onJavaScriptImport} hidden/><input ref={fileInput} type="file" accept=".json,.nflow.json,application/json" onChange={onImport} hidden/>{codeExporterOpen && <CodeExportDialog graph={graph} close={() => setCodeExporterOpen(false)} download={doDownloadCode}/>}</div>;
 }

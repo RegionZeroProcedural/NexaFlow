@@ -89,11 +89,26 @@ export function previewValue(v, depth = 0, budget = { n: 0 }) {
   }
 }
 
+/** Numeric magnitude used by the heatmap: the number itself, 0/1 for
+ * booleans, and length/size for collections. Strings and others get null
+ * (the heatmap ranks their distinct values instead). */
+export function magnitude(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'bigint') return Number(v);
+  if (Array.isArray(v)) return v.length;
+  if (v instanceof Map || v instanceof Set) return v.size;
+  if (v && typeof v === 'object' && ArrayBuffer.isView(v)) return v.length;
+  if (v && typeof v === 'object' && !(v instanceof External) && !v.$$jsx && !v.$$promise && !(v instanceof Error)) { try { return Object.keys(v).length; } catch (_) { return null; } }
+  return null;
+}
+
 /** Compact preview record stored in trace events. */
 export function snapshot(v) {
   let text;
   try { text = previewValue(v); } catch (_) { text = '‹unpreviewable›'; }
-  return { t: valueType(v), s: text.length > 160 ? `${text.slice(0, 157)}…` : text };
+  const n = magnitude(v);
+  return { t: valueType(v), s: text.length > 160 ? `${text.slice(0, 157)}…` : text, ...(n === null ? {} : { n }) };
 }
 
 /** Expanded, multi-line structure for the inspector (still getter-free). */

@@ -4,6 +4,8 @@ import FunctionSearch from '../function-search';
 import { dissectFunction, indexTrace, NODE_KINDS } from '../../scripts/microscope/dissect';
 import { traceFunction } from '../../scripts/microscope/interpreter';
 import useEdgeReveal from '../../scripts/use-edge-reveal';
+import WaterfallInspector from '../waterfall-inspector';
+import { heatmapFromTrace, watchSamplesFromTrace } from '../../scripts/heatmap';
 
 const VALUE_KINDS = new Set(['eval', 'write', 'return', 'branch', 'iter', 'throw', 'catch', 'call', 'await', 'yield']);
 
@@ -38,7 +40,7 @@ function SourceView({ project, fn, highlight, active, onPickLine }) {
   })}</pre>;
 }
 
-export default function MicroscopePage({ project, initialFnId, onClose, onShowOnBoard, notify }) {
+export default function MicroscopePage({ project, initialFnId, onClose, onShowOnBoard, notify, argTexts, setArgTexts, watchpoints = [] }) {
   const [fnId, setFnId] = useState(initialFnId);
   const [history, setHistory] = useState([initialFnId]);
   const [selectedId, setSelectedId] = useState(null);
@@ -49,7 +51,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
   const [follow, setFollow] = useState(true);
   const [autoCenter, setAutoCenter] = useState(true);
   const [showVarWires, setShowVarWires] = useState(false);
-  const [argTexts, setArgTexts] = useState({});
+  const [waterfallCollapsed, setWaterfallCollapsed] = useState(false);
   const [tab, setTab] = useState('run');
   const [busy, setBusy] = useState(false);
   const [transform, setTransform] = useState({ x: 40, y: 64, k: 0.8 });
@@ -169,11 +171,13 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
       while (args.length < target.params.length) args.push('');
       const result = traceFunction(project, targetId, args);
       const prepared = prepareRun(result, targetId, args);
+      prepared.heatmap = heatmapFromTrace(result.events, project);
+      prepared.samples = watchSamplesFromTrace(result.events, watchpoints);
       setRun(prepared); setCursor(0); setPlaying(true); setBusy(false); setTab('run');
       if (targetId !== fnId) navigate(targetId);
       notify?.(result.halted ? `Stopped: ${result.halted}` : result.error ? `Finished with ${result.error}` : `Traced ${target.name}() · ${result.events.length.toLocaleString()} events`, result.error || result.halted ? 'error' : 'success');
     }, 20);
-  }, [project, fnId, argTexts, navigate, notify]);
+  }, [project, fnId, argTexts, navigate, notify, watchpoints]);
 
   useEffect(() => {
     const key = e => {
@@ -194,6 +198,15 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
     return () => window.removeEventListener('keydown', key);
   }, [run, stepInto, stepBack, stepOver, stepOut, cursor, events.length, runFunction, onClose, selectedId]);
 
+  // Leave replay mode without closing the microscope: clear the trace and
+  // return to the function the run started from, in its static view.
+  const exitSimulation = useCallback(() => {
+    const origin = run?.rootFnId;
+    setPlaying(false); setRun(null); setCursor(0);
+    if (origin && origin !== fnId && project.functions[origin]) navigate(origin);
+    setFitSignal(n => n + 1);
+  }, [run, fnId, project, navigate]);
+  const waterfallRun = useMemo(() => (run ? { hasRun: true, heatmap: run.heatmap, samples: run.samples, total: run.events.length, unit: 'event' } : null), [run]);
   const onDive = useCallback(node => {
     const target = node.targetId || view.states.get(node.id)?.runtimeTarget;
     if (target && project.functions[target]) navigate(target);
@@ -235,9 +248,11 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
       </div>
       <FunctionSearch project={project} onOpen={id => navigate(id)} onShowOnBoard={onShowOnBoard} compact/>
       <button type="button" className="mx-header-button" onClick={() => onShowOnBoard(fnId)}>Show on board</button>
+      {run && <button type="button" className="mx-header-button mx-exit-sim" onClick={exitSimulation} title="Clear the trace and go back to the static view">✕ Exit simulation</button>}
       <button type="button" className="primary-button mx-run" disabled={busy} onClick={() => runFunction()}>{busy ? 'Tracing…' : `▶ Run ${fn.name.split('.').pop().split(' › ').pop()}()`}</button>
     </header>
     <div className="mx-body">
+      <div className="mx-column">
       <main className="mx-main">
         {die.error ? <div className="mx-error">Could not dissect this function: {die.error}</div> : <MicroscopeCanvas die={die} states={view.states} regionStates={view.regionStates} activeId={activeId} activeRowKey={view.activeRowKey} selectedId={selectedId} onSelect={setSelectedId} onDive={onDive} showVarWires={showVarWires} transform={transform} setTransform={setTransform} autoCenter={autoCenter && Boolean(run)} fitSignal={`${fnId}:${fitSignal}`}/>}
         {die.truncated && <div className="mx-banner">This function is very large; deep sub-expressions were collapsed into EXPR nodes.</div>}
@@ -276,6 +291,8 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
         </div>
         {current && <div className="mx-now"><span className={`mx-now-kind k-${current.k}`}>{current.k}</span>{describeEvent(current, project)}</div>}
       </main>
+      <WaterfallInspector className="mx-waterfall" title="Execution Waterfall" run={waterfallRun} cursor={run ? cursor : null} isPlaying={playing} collapsed={waterfallCollapsed} setCollapsed={setWaterfallCollapsed} onSeek={run ? (t => { setPlaying(false); setCursor(t + 1); }) : null}/>
+      </div>
 
       <aside className="mx-panel">
         <div className="mx-tabs">{['run', 'node', 'locals', 'calls', 'source', 'legend'].map(t => <button key={t} type="button" className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t === 'node' && selected ? 'node •' : t}</button>)}</div>
@@ -289,6 +306,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
             </section>
             {run && <section className="mx-section">
               <h3>Trace of {runFn?.name}()</h3>
+              <button type="button" className="mx-link" onClick={exitSimulation}>✕ Exit simulation · back to the static view</button>
               <div className={`mx-result ${run.error || run.halted ? 'bad' : 'good'}`}>{run.halted ? `⛔ ${run.halted}` : run.error ? `⚠ ${run.error}` : <>returned <code>{run.value?.s}</code></>}</div>
               <p className="mx-muted">{run.events.length.toLocaleString()} events · {run.frames.size} calls{run.approximate ? ' · approximate (see notes)' : ''}</p>
               {run.notes.length > 0 && <ul className="mx-notes">{run.notes.slice(0, 12).map((n, i) => <li key={i}>{n}</li>)}</ul>}

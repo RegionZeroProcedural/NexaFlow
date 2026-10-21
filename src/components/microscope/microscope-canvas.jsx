@@ -89,7 +89,9 @@ export default function MicroscopeCanvas({ die, states, regionStates, activeId, 
     return side === 'out' ? { x: n.x + NODE_W, y: n.y + NODE_H / 2 } : { x: n.x, y: n.y + (NODE_H * (pin + 1)) / (pins + 1) };
   };
   const selectedVarWires = die.varWires.filter(w => showVarWires || w.from === selectedId || w.to === selectedId);
-  return <div className="mx-canvas" ref={host} onPointerDown={e => { if (e.button !== 0 && e.button !== 1) return; drag.current = { sx: e.clientX, sy: e.clientY, x: tRef.current.x, y: tRef.current.y }; onSelect(null); }}>
+  // Panning keeps the selection (and its highlighted variable wires); only
+  // selecting another node or double-clicking empty canvas clears it.
+  return <div className="mx-canvas" ref={host} onPointerDown={e => { if (e.button !== 0 && e.button !== 1) return; drag.current = { sx: e.clientX, sy: e.clientY, x: tRef.current.x, y: tRef.current.y }; }} onDoubleClick={e => { if (!e.target.closest('[data-mx-node]')) onSelect(null); }}>
     <div className="mx-stage" style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})` }}>
       <svg className="mx-svg" width={die.width + 40} height={die.height + 40} style={{ overflow: 'visible' }}>
         <defs>

@@ -219,3 +219,81 @@
 .mx-legend-row{display:flex;align-items:center;gap:8px;font-size:11px;color:#cfcaf0;padding:3px 0}
 .mx-legend-row small{margin-left:auto;color:#6f6e92;font-size:9.5px}
 .mx-swatch{width:12px;height:12px;border-radius:3px;background:var(--k)}
+
+/* ---------- v1.3: heatmap waterfall, watchpoints, simulation exit ---------- */
+/* Canvas tools must sit above the search bar / entry button when revealed. */
+.top-reveal{z-index:14}
+.exit-simulation-button{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:13;border:1px solid #c98a54;background:#3a2a1c;color:#ffd9b0;border-radius:9px;padding:8px 14px;font-size:11.5px;font-weight:750;cursor:pointer;box-shadow:0 6px 20px #0007}
+.exit-simulation-button:hover{background:#4d3622}
+.mx-exit-sim{border-color:#c98a54;background:#3a2a1c;color:#ffd9b0}
+.library-bottom{position:relative}
+.library-tip-close{position:absolute;top:7px;right:7px;width:22px;height:22px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:#8f8aae;cursor:pointer}
+.library-tip-close:hover{background:#3a3556;color:#fff}
+.library-bottom>div:nth-child(2){padding-right:18px}
+
+.waterfall-tabs{display:flex;gap:4px;margin-left:8px}
+.waterfall-tabs button{border:1px solid #394358;background:#212739;color:#aab3cc;border-radius:7px;padding:5px 10px;font-size:10.5px;font-weight:750;cursor:pointer;display:flex;align-items:center;gap:6px}
+.waterfall-tabs button.active{background:#3a3363;border-color:#7a68c8;color:#efe9ff}
+.waterfall-tabs button span{background:#ffffff18;border-radius:8px;padding:0 6px;font-size:9.5px}
+.waterfall-body{display:flex;flex-direction:column}
+.waterfall-body>.hm,.waterfall-body>.hm-empty{flex:1;min-height:0}
+.waterfall-columns{flex:1;min-height:0;display:flex;gap:10px}
+.waterfall-chart{flex:1;min-width:0;display:flex;flex-direction:column}
+.waterfall-chart>.hm{flex:1;min-height:0}
+.waterfall-details{width:min(340px,32%);display:flex;flex-direction:column;min-height:0}
+.waterfall-events{flex:1;min-height:0;overflow:auto}
+
+.hm{display:flex;flex-direction:column;min-height:0;height:100%;gap:5px}
+.hm-empty{display:grid;place-items:center;color:#8d93b5;font-size:12px}
+.hm-toolbar{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#9aa3c2;flex-wrap:nowrap;overflow:hidden}
+.hm-toolbar button{border:1px solid #394358;background:#262d42;color:#d5dcf0;border-radius:6px;min-width:24px;height:22px;font-size:11px;font-weight:700;cursor:pointer;padding:0 7px}
+.hm-toolbar button:hover{background:#323b56}
+.hm-filter{width:150px;background:#10131f;border:1px solid #394358;border-radius:6px;color:#e6e9f7;font-size:10.5px;padding:4px 8px;outline:none}
+.hm-filter:focus{border-color:#7a68c8}
+.hm-group-label{margin-left:6px;font-size:9px;letter-spacing:.8px;text-transform:uppercase;color:#6f7899}
+.hm-legend{display:flex;align-items:center;gap:5px;margin-left:10px;font-size:9.5px;color:#8b93b8}
+.hm-legend i{display:block;width:90px;height:9px;border-radius:3px}
+.hm-count{margin-left:auto;font-size:9.5px;color:#6f7899;white-space:nowrap}
+.hm-main{flex:1;min-height:0;display:flex;border:1px solid #2c3247;border-radius:7px;overflow:hidden;background:#0b0c16}
+.hm-labels{width:178px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid #2c3247;background:#121522}
+.hm-labels-head{height:18px;flex-shrink:0;font-size:8.5px;letter-spacing:1.2px;color:#6f7899;padding:4px 8px 0;box-sizing:border-box;background:#141827}
+.hm-labels-clip{flex:1;overflow:hidden;position:relative}
+.hm-label{display:flex;align-items:baseline;gap:5px;padding:0 8px;box-sizing:border-box;overflow:hidden;white-space:nowrap;font:10.5px/1 ui-monospace,Consolas,monospace;color:#d8dcf2;border-bottom:1px solid #00000040}
+.hm-label{align-items:center}
+.hm-label small{color:#6f7899;font-size:9px;max-width:45%;overflow:hidden;text-overflow:ellipsis}
+.hm-label span{overflow:hidden;text-overflow:ellipsis}
+.hm-label.hover{background:#2a2f49;color:#fff}
+.hm-plot{flex:1;min-width:0;position:relative;cursor:crosshair;overflow:hidden;touch-action:none}
+.hm-plot canvas{position:absolute;left:0;top:0;display:block}
+.hm-tip{position:absolute;z-index:3;pointer-events:none;background:#141726f2;border:1px solid #4a4f75;border-radius:7px;padding:6px 9px;display:flex;flex-direction:column;gap:2px;font-size:10.5px;color:#cfd4ef;max-width:220px;box-shadow:0 8px 20px #0009}
+.hm-tip strong{font-size:10.5px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-tip code{color:#ffe6a8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-tip em{color:#ff9fae;font-style:normal}
+
+.hm-settings{position:relative}
+.hm-settings-button{display:inline-flex !important;align-items:center;gap:6px}
+.hm-settings-swatch{width:26px;height:9px;border-radius:3px;display:inline-block}
+.hm-settings-pop{position:absolute;right:0;bottom:calc(100% + 8px);z-index:60;width:250px;background:#1b2031;border:1px solid #47506f;border-radius:10px;padding:10px 12px;box-shadow:0 18px 40px #000b;color:#dfe4f6}
+.hm-settings-pop h4{margin:8px 0 6px;font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:#8d96bb}
+.hm-settings-pop h4:first-child{margin-top:0}
+.hm-palettes{display:flex;flex-direction:column;gap:3px}
+.hm-palettes button{display:flex;align-items:center;gap:8px;border:1px solid transparent;background:transparent;color:#d5dbef;border-radius:6px;padding:4px 6px;font-size:11px;cursor:pointer;text-align:left}
+.hm-palettes button span{width:70px;height:10px;border-radius:3px;flex-shrink:0;background:#333}
+.hm-palettes button:hover{background:#262c42}
+.hm-palettes button.active{border-color:#7a68c8;background:#2b2850}
+.hm-custom{display:flex;gap:8px;margin-top:6px}
+.hm-custom label,.hm-row-setting{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#b8bfdb}
+.hm-row-setting{margin-top:8px;justify-content:space-between}
+.hm-settings-pop input[type=color]{width:30px;height:22px;border:1px solid #47506f;border-radius:4px;background:none;padding:0;cursor:pointer}
+.hm-toggle{display:flex;gap:4px}
+.hm-toggle button{flex:1;border:1px solid #394358;background:#232a3e;color:#c7cee6;border-radius:6px;padding:5px;font-size:10.5px;cursor:pointer}
+.hm-toggle button.active{background:#3a3363;border-color:#7a68c8;color:#fff}
+.hm-reset{margin-top:10px;width:100%;border:1px solid #394358;background:#232a3e;color:#c7cee6;border-radius:6px;padding:6px;font-size:10.5px;cursor:pointer}
+
+/* Waterfall inside the microscope */
+.mx-column{flex:1;min-width:0;display:flex;flex-direction:column}
+.mx-column .mx-main{flex:1;min-height:0}
+.mx-waterfall{flex:0 0 clamp(190px,30vh,290px)}
+.mx-waterfall.is-collapsed{flex-basis:49px}
+
+.hm,.mx-canvas,.mx-node{user-select:none;-webkit-user-select:none}

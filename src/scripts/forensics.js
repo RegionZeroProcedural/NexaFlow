@@ -41,6 +41,14 @@ export function simulateImportedProgram(graph) {
   const MAX_STEPS = 500;
   const workspace = createSourceWorkspace(graph.program.workspaceFiles || { [graph.program.sourcePath || 'import.js']: graph.program.source });
   let counter = 0, skippedOperations = 0;
+  // Watch nodes wired to a source node's Value port observe what it records.
+  const attachedWatches = new Map();
+  for (const edge of graph.edges) {
+    const target = nodeMap.get(edge.target);
+    if (edge.sourcePort !== 'value' || target?.type !== 'watch') continue;
+    if (!attachedWatches.has(edge.source)) attachedWatches.set(edge.source, []);
+    attachedWatches.get(edge.source).push(target);
+  }
   const unknownNames = new Set();
   // A callee cannot reassign the caller's primitive locals; it can only mutate
   // objects reachable through aliases, or reassign names a nested closure
@@ -76,6 +84,12 @@ export function simulateImportedProgram(graph) {
       const status = checkWatchRule(rule, value, unknown);
       watchSamples.push({ id: `${e.id}_${rule.id}`, watchName: `Watch: ${name}`, watchId: rule.id, variable: name, nodeId: node?.id || null, sourceLine: node?.sourceLine || null, executionStep: step, value, previousValue: previous, dataType: unknown ? 'unknown' : value === null ? 'null' : typeof value, state: status.failed ? (unknown ? 'unknown' : 'failed') : 'passed', unknown, reason: status.reason || 'Expected value', dependencyEvents: e.dependencyEvents });
       if (status.failed) assertions.push({ id: `${e.id}_${rule.id}`, eventId: e.id, name, nodeId: node?.id, step, value, unknown, expected: rule.check === 'range' ? `[${rule.min}, ${rule.max}]` : rule.check === 'type' ? rule.expectedType : rule.expected, message: status.reason });
+    }
+    for (const watch of attachedWatches.get(node?.id) || []) {
+      if (watch.traceVariable === 'named' && watch.traceVariableName && watch.traceVariableName !== name) continue;
+      const rule = { check: watch.check || 'range', min: watch.min ?? 0, max: watch.max ?? 100, expected: watch.expected ?? 'true', expectedType: watch.expectedType || 'number' };
+      const status = checkWatchRule(rule, value, unknown);
+      watchSamples.push({ id: `${e.id}_${watch.id}`, watchName: watch.title, watchId: watch.id, variable: name === '$return' ? 'return' : name, nodeId: watch.id, sourceLine: node?.sourceLine || null, executionStep: step, value, previousValue: previous, dataType: unknown ? 'unknown' : value === null ? 'null' : typeof value, state: status.failed ? (unknown ? 'unknown' : 'failed') : 'passed', unknown, reason: status.reason || 'Validation passed', dependencyEvents: e.dependencyEvents });
     }
     return e;
   }

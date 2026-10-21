@@ -137,6 +137,7 @@ export function isControlEdge(graph, edge) {
      isFunctionNode(target) && edge.targetPort === 'execute');
 }
 
+const VALUE_SOURCE_TYPES = new Set(['source-start', 'source-operation', 'source-property-write', 'source-update', 'source-declare', 'source-call', 'source-return']);
 const count = (value, fallback, min = 0) => Number.isInteger(value) ? Math.max(min, Math.min(MAX_PORTS, value)) : fallback;
 
 /** All consumers (canvas, validation, connection manager, simulator, export) use
@@ -169,6 +170,8 @@ export function getNodePorts(node) {
     const n = Number.isInteger(node.flowInCount) ? Math.max(1, Math.min(16, node.flowInCount)) : 1;
     const inputs = node.type === 'source-start' ? [] : Array.from({ length: n }, (_, i) => ({ id: i ? `in${i + 1}` : 'in', label: 'Flow', kind: 'flow', top: 168 + i * 32 }));
     const outputs = node.type === 'source-start' || node.type === 'source-operation' || node.type === 'source-update' || node.type === 'source-declare' || node.type === 'source-call' || node.type === 'source-property-write' || (node.inspectOnly && node.type.startsWith('source-')) || ['source-opaque', 'source-loop', 'source-switch', 'source-try', 'source-throw', 'source-await'].includes(node.type) ? [{ id: 'out', label: 'Next', kind: 'flow', top: 168 }] : node.type === 'source-decision' ? [{ id: 'true', label: 'Yes', kind: 'flow', top: 168 }, { id: 'false', label: 'No', kind: 'flow', top: 201 }, ...(node.sourceCallCondition || node.richExpression ? [{id:'unknown',label:'Unknown',kind:'flow',top:234}] : [])] : [];
+    // Nodes that record a value expose it so Watch nodes can be attached.
+    if (VALUE_SOURCE_TYPES.has(node.type) && !node.inspectOnly) outputs.push({ id: 'value', label: 'Value', kind: 'data', dataType: 'any', top: outputs.length ? 201 : 168 });
     return { inputs, outputs };
   }
   if (node.type === 'variable') return { inputs: [], outputs: [{ id: 'out', label: node.dataType || 'number', kind: 'data', dataType: node.dataType || 'number', top: 170 }] };

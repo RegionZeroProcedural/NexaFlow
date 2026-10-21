@@ -506,8 +506,11 @@ export function importJavaScriptFunction(source, filename = 'Imported JavaScript
  * formatting, side effects) remains byte-for-byte identical.
  * Structural rewiring is explicitly rejected, not silently dropped.
  */
-export function exportImportedJavaScript(graph) {
-  if (graph.program?.kind !== 'javascript-function') throw new Error('Not an imported function');
+export function exportImportedJavaScript(fullGraph) {
+  if (fullGraph.program?.kind !== 'javascript-function') throw new Error('Not an imported function');
+  // Watch/Assert probes attached to source nodes are debugging aids, not code.
+  const probes = new Set(fullGraph.nodes.filter(n => n.type === 'watch' || n.type === 'assert').map(n => n.id));
+  const graph = { ...fullGraph, nodes: fullGraph.nodes.filter(n => !probes.has(n.id)), edges: fullGraph.edges.filter(e => !probes.has(e.source) && !probes.has(e.target)) };
   const { source, importedNodeIds, importedEdgeIds } = graph.program;
   if (graph.nodes.length !== importedNodeIds.length || graph.edges.length !== importedEdgeIds.length || graph.nodes.some(n => !importedNodeIds.includes(n.id)) || graph.edges.some(e => !importedEdgeIds.includes(e.id)) || graph.edges.some(e => !graph.program.originalEdges?.some(x => x.id === e.id && x.source === e.source && x.sourcePort === e.sourcePort && x.target === e.target && x.targetPort === e.targetPort))) throw new Error('Graph structure changed. Source export supports expression edits only; undo structural changes or export project JSON.');
   const edits = [];

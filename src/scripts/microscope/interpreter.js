@@ -20,6 +20,7 @@ export class ExecutionHalt extends Error {}
 class UserThrow { constructor(value) { this.value = value; } }
 class GeneratorCap { }
 const SHORT = Symbol('optional-short-circuit');
+const MUTATORS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin', 'set', 'add', 'delete', 'clear']);
 const TDZ = Symbol('tdz');
 
 // ---------- Sandbox security ----------
@@ -1184,7 +1185,14 @@ export class Runtime {
       const meta = typeof fn === 'function' ? interpretedFunctions.get(fn) : null;
       this.ev('call', node, ctx, { args: args.slice(0, 16).map(snapshot), callee: meta?.fnId || null, native: !meta && typeof fn === 'function' ? (fn.name || 'native') : null, external: fn instanceof External ? fn.label : null });
       if (fn instanceof External) this.ev('external', node, ctx, { label: `${fn.label}(…)` });
-      return this.value(node, ctx, this.callFunction(fn, thisArg, args, undefined, node, ctx));
+      const result = this.callFunction(fn, thisArg, args, undefined, node, ctx);
+      // In-place mutations (list.push(x), map.set(k, v), …) change the variable
+      // without an assignment; record them so value history stays accurate.
+      if ((callee.type === 'MemberExpression' || callee.type === 'OptionalMemberExpression') && !callee.computed && MUTATORS.has(propertyName(callee.property)) && thisArg && typeof thisArg === 'object' && !(thisArg instanceof External)) {
+        const target = unwrapTs(callee.object);
+        if (target.type === 'Identifier' || target.type === 'MemberExpression' || target.type === 'ThisExpression') this.emit({ k: 'write', name: exprLabel(target), key: astKey(node), fn: ctx.fnId, frame: ctx.frame, depth: ctx.depth, v: snapshot(thisArg), prop: target.type !== 'Identifier', mutation: true });
+      }
+      return this.value(node, ctx, result);
     }
     if (node.type === 'ChainExpression') return this.evaluateChainPart(node.expression, scope, ctx);
     return this.evaluate(node, scope, ctx);
