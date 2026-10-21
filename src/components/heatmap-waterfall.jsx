@@ -1,21 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { PALETTES, DEFAULT_HEATMAP_SETTINGS, paletteLut, paletteCss, rgbOf } from '../scripts/heatmap';
+import { PALETTES, DEFAULT_HEATMAP_SETTINGS, paletteLut, paletteCss, rgbOf, valueSampler } from '../scripts/heatmap';
 
-// ---------- Shared, persisted colour settings ----------
-const SETTINGS_KEY = 'nexa-flow:heatmap:v1';
-let currentSettings = (() => {
-  try { return { ...DEFAULT_HEATMAP_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch (_) { return { ...DEFAULT_HEATMAP_SETTINGS }; }
-})();
-const listeners = new Set();
-function setSharedSettings(patch) {
-  currentSettings = { ...currentSettings, ...patch };
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(currentSettings)); } catch (_) { /* private mode */ }
-  listeners.forEach(fn => fn());
+// ---------- Persisted settings stores ----------
+/** A small localStorage-backed store shared by every component using it.
+ * Each visualization gets its own store so their settings stay independent. */
+export function createSettingsStore(key, defaults) {
+  let current = (() => {
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem(key) || '{}') }; } catch (_) { return { ...defaults }; }
+  })();
+  const listeners = new Set();
+  const set = patch => {
+    current = { ...current, ...patch };
+    try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) { /* private mode */ }
+    listeners.forEach(fn => fn());
+  };
+  const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
+  return function useStore() { return [useSyncExternalStore(subscribe, () => current), set]; };
 }
-export function useHeatmapSettings() {
-  const settings = useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn); }, () => currentSettings);
-  return [settings, setSharedSettings];
-}
+export const useHeatmapSettings = createSettingsStore('nexa-flow:heatmap:v1', DEFAULT_HEATMAP_SETTINGS);
 
 export function HeatmapSettingsButton() {
   const [settings, setSettings] = useHeatmapSettings();
@@ -28,20 +30,20 @@ export function HeatmapSettingsButton() {
     return () => document.removeEventListener('pointerdown', away);
   }, [open]);
   return <div className="hm-settings" ref={root}>
-    <button type="button" className="hm-settings-button" aria-expanded={open} title="Heatmap colours and scaling" onClick={() => setOpen(v => !v)}><span className="hm-settings-swatch" style={{ background: paletteCss(settings) }}/>Colours</button>
+    <button type="button" className="hm-settings-button" aria-expanded={open} title="Heatmap colours and Value Heatmap scaling" onClick={() => setOpen(v => !v)}><span className="hm-settings-swatch" style={{ background: paletteCss(settings) }}/>Colours</button>
     {open && <div className="hm-settings-pop" role="dialog" aria-label="Heatmap settings">
-      <h4>Colour map</h4>
+      <h4>Colour map (all heatmaps)</h4>
       <div className="hm-palettes">{Object.entries(PALETTES).map(([id, p]) => <button type="button" key={id} className={settings.palette === id ? 'active' : ''} onClick={() => setSettings({ palette: id })}><span style={{ background: paletteCss({ ...settings, palette: id }) }}/>{p.name}</button>)}</div>
       {settings.palette === 'custom' && <div className="hm-custom">
         {['Low', 'Mid', 'High'].map((label, i) => <label key={label}>{label}<input type="color" value={settings.custom[i]} onChange={e => { const custom = [...settings.custom]; custom[i] = e.target.value; setSettings({ custom }); }}/></label>)}
       </div>}
       <label className="hm-row-setting">No value yet<input type="color" value={settings.empty} onChange={e => setSettings({ empty: e.target.value })}/></label>
-      <h4>Colour by</h4>
+      <h4>Value Heatmap colours by</h4>
       <div className="hm-toggle">
         <button type="button" className={settings.mode === 'value' ? 'active' : ''} onClick={() => setSettings({ mode: 'value' })} title="Each row is normalised between its own min and max">Value</button>
-        <button type="button" className={settings.mode === 'activity' ? 'active' : ''} onClick={() => setSettings({ mode: 'activity' })} title="Bright when the variable was just written, fading afterwards">Write activity</button>
+        <button type="button" className={settings.mode === 'activity' ? 'active' : ''} onClick={() => setSettings({ mode: 'activity' })} title="Bright right after a write, fading afterwards (see the Activity Heatmap tab for change frequency)">Recent writes</button>
       </div>
-      <h4>Scale</h4>
+      <h4>Value Heatmap scale</h4>
       <div className="hm-toggle">
         <button type="button" className={settings.scale === 'linear' ? 'active' : ''} onClick={() => setSettings({ scale: 'linear' })}>Linear</button>
         <button type="button" className={settings.scale === 'log' ? 'active' : ''} onClick={() => setSettings({ scale: 'log' })}>Log</button>
@@ -54,16 +56,12 @@ export function HeatmapSettingsButton() {
 // ---------- Renderer ----------
 const RULER = 18;
 const niceStep = raw => { const p = 10 ** Math.floor(Math.log10(Math.max(1e-9, raw))); const m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
-const logish = x => Math.sign(x) * Math.log1p(Math.abs(x));
-function valueAt(row, t) {
-  const c = row.changes;
-  let lo = 0, hi = c.length - 1, found = -1;
-  while (lo <= hi) { const mid = (lo + hi) >> 1; if (c[mid].t <= t) { found = mid; lo = mid + 1; } else hi = mid - 1; }
-  return found < 0 ? null : c[found];
-}
 
-/** Rows = variables (labelled on the left), x = execution timeline. */
-export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMessage = 'No values recorded yet.', unit = 'step' }) {
+/** Rows = variables (labelled on the left), x = execution timeline.
+ * `sampler` decides each cell's colour (defaults to the Value Heatmap);
+ * `cursor` is the playback position and `revealed` the furthest position
+ * played so far, so rewinding keeps already-seen data visible. */
+export default function HeatmapWaterfall({ model, cursor = null, revealed = null, onSeek, sampler: customSampler = null, toolbarExtra = null, emptyMessage = 'No values recorded yet.', unit = 'step' }) {
   const [settings] = useHeatmapSettings();
   const [filter, setFilter] = useState('');
   const [zoom, setZoom] = useState(null); // px per timeline unit; null = fit
@@ -74,11 +72,14 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
   const [hover, setHover] = useState(null);
   const plotRef = useRef(null), canvasRef = useRef(null), offRef = useRef(null), drag = useRef(null);
   const lut = useMemo(() => paletteLut(settings), [settings]);
+  const defaultSampler = useMemo(() => valueSampler(settings), [settings]);
+  const sampler = customSampler || defaultSampler;
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return (model?.rows || []).filter(r => !q || `${r.group} ${r.label}`.toLowerCase().includes(q));
   }, [model, filter]);
   const length = Math.max(1, model?.length || 1);
+  const seen = revealed == null ? cursor : Math.max(revealed, cursor ?? 0);
   const fitZoom = size.w / length;
   const z = zoom ?? fitZoom;
   const off = zoom == null ? 0 : offset;
@@ -122,24 +123,12 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
       const octx = off2.getContext('2d');
       const img = octx.createImageData(size.w, count);
       const data = img.data;
-      const tau = Math.max(2, 10 / z);
       for (let r = 0; r < count; r++) {
-        const row = rows[first + r];
-        const log = settings.scale === 'log';
-        const mn = log ? logish(row.min) : row.min, mx = log ? logish(row.max) : row.max;
-        const span = mx - mn;
-        const changes = row.changes;
-        let j = -1;
+        const sample = sampler.make(rows[first + r], { z });
         for (let x = 0; x < size.w; x++) {
           const t = Math.floor(off + x / z);
-          while (j + 1 < changes.length && changes[j + 1].t <= t) j++;
+          const q = t < length ? sample(t) : null;
           const p = (r * size.w + x) * 4;
-          const c = j >= 0 ? changes[j] : null;
-          let q = null;
-          if (c && t < length) {
-            if (settings.mode === 'activity') q = Math.exp(-(t - c.t) / tau);
-            else if (typeof c.x === 'number') { const xv = log ? logish(c.x) : c.x; q = span > 0 ? (xv - mn) / span : 0.22; } // constant rows stay dim so changes stand out
-          }
           if (q === null) { data[p] = empty[0]; data[p + 1] = empty[1]; data[p + 2] = empty[2]; data[p + 3] = 255; continue; }
           const k = Math.max(0, Math.min(255, Math.round(q * 255))) * 3;
           data[p] = lut[k]; data[p + 1] = lut[k + 1]; data[p + 2] = lut[k + 2]; data[p + 3] = 255;
@@ -155,17 +144,21 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
       for (let r = 0; r < count; r++) {
         const row = rows[first + r], y = y0 + r * rowH;
         if (rowH >= 9) { ctx.fillStyle = '#00000055'; ctx.fillRect(0, y + rowH - 1, size.w, 1); }
-        for (const c of row.changes) {
+        for (const c of sampler.ticks(row)) {
           const x = (c.t - off) * z;
           if (x < -2 || x > size.w) continue;
           if (c.flag) { ctx.fillStyle = '#ff4d6d'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + Math.min(rowH, 7)); ctx.fill(); }
           else if (z >= 4 && rowH >= 9) { ctx.fillStyle = '#ffffff40'; ctx.fillRect(x, y, 1, rowH - 1); }
         }
       }
-      // not-yet-reached part of the run
-      if (cursor != null && cursor < length) {
-        const cx = Math.max(0, (cursor - off) * z);
-        ctx.fillStyle = '#05060dcc'; ctx.fillRect(cx, RULER, size.w - cx, size.h - RULER);
+      // never-reached part of the run is hidden; rewound-but-seen part stays readable
+      if (seen != null && seen < length) {
+        const sx = Math.max(0, (seen - off) * z);
+        ctx.fillStyle = '#05060dcc'; ctx.fillRect(sx, RULER, size.w - sx, size.h - RULER);
+      }
+      if (cursor != null && seen != null && cursor < seen) {
+        const cx = Math.max(0, (cursor - off) * z), sx = Math.min(size.w, (seen - off) * z);
+        if (sx > cx) { ctx.fillStyle = '#05060d55'; ctx.fillRect(cx, RULER, sx - cx, size.h - RULER); }
       }
       ctx.restore();
     }
@@ -178,11 +171,15 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
       ctx.fillRect(x, RULER - 5, 1, 5);
       ctx.fillText(String(t), x + 3, 12);
     }
+    // subtle playback indicator: thin line plus a marker on the ruler
     if (cursor != null) {
       const cx = (cursor - off) * z;
-      if (cx >= 0 && cx <= size.w) { ctx.fillStyle = '#ffd27a'; ctx.fillRect(cx - 1, 0, 2, size.h); }
+      if (cx >= 0 && cx <= size.w) {
+        ctx.fillStyle = '#ffd27a8c'; ctx.fillRect(cx - 0.5, RULER, 1, size.h - RULER);
+        ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.moveTo(cx - 4, 0); ctx.lineTo(cx + 4, 0); ctx.lineTo(cx, 7); ctx.fill();
+      }
     }
-  }, [rows, size, z, off, rowH, top, settings, lut, cursor, length]);
+  }, [rows, size, z, off, rowH, top, settings, lut, cursor, seen, length, sampler]);
 
   const locate = e => {
     const rect = plotRef.current.getBoundingClientRect();
@@ -215,8 +212,8 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   });
 
-  const hoverValue = hover?.row ? valueAt(hover.row, hover.t) : null;
   if (!model || !model.rows.length) return <div className="hm-empty">{emptyMessage}</div>;
+  const tipLines = hover?.row ? sampler.describe(hover.row, hover.t) : [];
   return <div className="hm">
     <div className="hm-toolbar">
       <input className="hm-filter" placeholder="Filter variables…" value={filter} onChange={e => setFilter(e.target.value)} aria-label="Filter heatmap rows"/>
@@ -227,24 +224,24 @@ export default function HeatmapWaterfall({ model, cursor = null, onSeek, emptyMe
       <span className="hm-group-label">Rows</span>
       <button type="button" title="Shorter rows (Ctrl + scroll)" onClick={() => setRowH(h => Math.max(3, h - 3))}>−</button>
       <button type="button" title="Taller rows (Ctrl + scroll)" onClick={() => setRowH(h => Math.min(48, h + 3))}>+</button>
-      <span className="hm-legend"><span>{settings.mode === 'activity' ? 'idle' : 'low'}</span><i style={{ background: paletteCss(settings) }}/><span>{settings.mode === 'activity' ? 'just written' : 'high'}</span></span>
+      {toolbarExtra}
+      <span className="hm-legend"><span>{sampler.legend[0]}</span><i style={{ background: paletteCss(settings) }}/><span>{sampler.legend[1]}</span></span>
       <span className="hm-count">{rows.length} rows · {length.toLocaleString()} {unit}s</span>
     </div>
     <div className="hm-main">
       <div className="hm-labels" style={{ '--row-h': `${rowH}px` }} onWheel={e => setScrollTop(st => Math.max(0, Math.min(maxScroll, st + e.deltaY)))}>
         <div className="hm-labels-head">VARIABLE</div>
-        <div className="hm-labels-clip"><div style={{ transform: `translateY(${-top}px)` }}>{rows.map(row => <div key={row.id} className={`hm-label ${hover?.row === row ? 'hover' : ''}`} style={{ height: rowH }} title={`${row.group} › ${row.label}${row.numeric ? ` · range ${row.min} … ${row.max}` : row.distinct != null ? ` · ${row.distinct} distinct values` : ''}`}>{rowH >= 11 && <small>{row.group}</small>}<span>{row.label}</span></div>)}</div></div>
+        <div className="hm-labels-clip"><div style={{ transform: `translateY(${-top}px)` }}>{rows.map(row => <div key={row.id} className={`hm-label ${hover?.row === row ? 'hover' : ''}`} style={{ height: rowH }} title={sampler.title(row)}>{rowH >= 11 && <small>{row.group}</small>}<span>{row.label}</span></div>)}</div></div>
       </div>
       <div className="hm-plot" ref={plotRef}
         onWheel={onWheel}
         onPointerDown={e => { if (e.button !== 0) return; e.preventDefault(); drag.current = { x: e.clientX, y: e.clientY, z, off, top, moved: false }; }}
         onPointerMove={e => setHover(locate(e))} onPointerLeave={() => setHover(null)}>
         <canvas ref={canvasRef}/>
-        {hover?.row && <div className="hm-tip" style={{ left: Math.min(hover.x + 14, size.w - 230), top: Math.min(hover.y + 12, size.h - 54) }}>
+        {hover?.row && <div className="hm-tip" style={{ left: Math.min(hover.x + 14, size.w - 230), top: Math.min(hover.y + 12, size.h - 64) }}>
           <strong>{hover.row.group} › {hover.row.label}</strong>
           <span>{unit} {hover.t}</span>
-          <code>{hoverValue ? hoverValue.v?.s : 'not set yet'}</code>
-          {hoverValue?.flag && <em>⚠ {hoverValue.sample?.reason}</em>}
+          {tipLines.map((line, i) => line.kind === 'code' ? <code key={i}>{line.text}</code> : line.kind === 'warn' ? <em key={i}>{line.text}</em> : <span key={i} className="hm-tip-meta">{line.text}</span>)}
         </div>}
       </div>
     </div>

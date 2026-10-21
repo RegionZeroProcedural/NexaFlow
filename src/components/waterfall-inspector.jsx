@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Icon from './icon';
 import { showValue } from './node-config';
 import HeatmapWaterfall, { HeatmapSettingsButton } from './heatmap-waterfall';
+import ActivityHeatmap from './activity-heatmap';
 import { heatmapFromSamples } from '../scripts/heatmap';
 
 const statuses = { passed: 'In range', failed: 'Violation', unknown: 'Unknown' };
@@ -13,8 +14,8 @@ const clip = text => (text.length > 75 ? `${text.slice(0, 72)}…` : text);
  * spectrum-analyzer waterfall). Tab 2: user-placed Watch node channels.
  * `run` = { hasRun, heatmap, samples, total, unit }. `cursor` is the playback
  * position on the same timeline as the heatmap. */
-export default function WaterfallInspector({ run, cursor, isPlaying, collapsed, setCollapsed, onJump, onSeek, title = 'Execution Waterfall', className = '' }) {
-  const [tab, setTab] = useState('heatmap');
+export default function WaterfallInspector({ run, cursor, revealed = null, isPlaying, collapsed, setCollapsed, onJump, onSeek, title = 'Execution Waterfall', className = '' }) {
+  const [tab, setTab] = useState('value');
   const [activeId, setActiveId] = useState(null);
   useEffect(() => { setActiveId(null); }, [run]);
   const total = Math.max(1, run?.total || 1);
@@ -40,7 +41,8 @@ export default function WaterfallInspector({ run, cursor, isPlaying, collapsed, 
     <header className="waterfall-header">
       <div className="waterfall-heading"><span className="waterfall-heading-icon"><Icon name="layers" size={17}/></span><div><strong>{title}</strong><small>Every variable over the whole run · Watch nodes in their own tab</small></div></div>
       <div className="waterfall-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === 'heatmap'} className={tab === 'heatmap' ? 'active' : ''} onClick={() => { setTab('heatmap'); if (collapsed) setCollapsed(false); }}>Heatmap{run?.heatmap?.rows.length ? <span>{run.heatmap.rows.length}</span> : null}</button>
+        <button type="button" role="tab" aria-selected={tab === 'value'} className={tab === 'value' ? 'active' : ''} title="What values each variable holds over time" onClick={() => { setTab('value'); if (collapsed) setCollapsed(false); }}>Value Heatmap{run?.heatmap?.rows.length ? <span>{run.heatmap.rows.length}</span> : null}</button>
+        <button type="button" role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'active' : ''} title="How often each variable changes over time" onClick={() => { setTab('activity'); if (collapsed) setCollapsed(false); }}>Activity Heatmap</button>
         <button type="button" role="tab" aria-selected={tab === 'watch'} className={tab === 'watch' ? 'active' : ''} onClick={() => { setTab('watch'); if (collapsed) setCollapsed(false); }}>Watchpoints{watchModel.rows.length ? <span>{watchModel.rows.length}</span> : null}</button>
       </div>
       <div className="waterfall-meta" aria-live="polite"><span className={`waterfall-status ${isPlaying && !complete ? 'is-live' : ''}`}><span className="waterfall-status-dot"/>{stateLabel}</span>{failures > 0 && <span className="waterfall-count-fail">{failures} flagged</span>}{run?.hasRun && <span className="waterfall-progress">{Math.min(position, total).toLocaleString()}/{total.toLocaleString()} {unit}s</span>}</div>
@@ -48,10 +50,11 @@ export default function WaterfallInspector({ run, cursor, isPlaying, collapsed, 
     </header>
     {!collapsed && <div className="waterfall-body">
       {!run?.hasRun ? <div className="waterfall-empty"><Icon name="monitor" size={25}/><strong>Ready to observe data</strong><span>Press Run. The heatmap fills in with every variable as the program executes. Wire Watch nodes to functions to add focused watchpoints.</span></div>
-        : tab === 'heatmap' ? <HeatmapWaterfall model={run.heatmap} cursor={position} onSeek={onSeek} unit={unit} emptyMessage="No variables were written during this run."/>
+        : tab === 'value' ? <HeatmapWaterfall model={run.heatmap} cursor={position} revealed={revealed} onSeek={onSeek} unit={unit} emptyMessage="No variables were written during this run."/>
+        : tab === 'activity' ? <ActivityHeatmap model={run.heatmap} cursor={position} revealed={revealed} onSeek={onSeek} unit={unit}/>
         : !watchModel.rows.length ? <div className="waterfall-empty"><Icon name="eye" size={25}/><strong>No watchpoints yet</strong><span>Add a Watch node and connect it: a function's <b>out</b> port → Watch shows return values, <b>DONE</b> → Watch shows completed calls, Watch → a function input shows that argument, and a Watch set to a named variable follows that local. Imported single functions have a <b>Value</b> port for the same purpose.</span></div>
         : <div className="waterfall-columns">
-          <div className="waterfall-chart"><HeatmapWaterfall model={watchModel} cursor={position} onSeek={onSeek} unit={unit}/></div>
+          <div className="waterfall-chart"><HeatmapWaterfall model={watchModel} cursor={position} revealed={revealed} onSeek={onSeek} unit={unit}/></div>
           <div className="waterfall-details"><div className="waterfall-details-title">WATCH SAMPLES <span>Newest last</span></div><div className="waterfall-events" role="log" aria-label="Recorded Watch samples">{samples.slice(-400).map(s => <button type="button" key={s.id} className={`waterfall-event ${s.state} ${activeId === s.id ? 'selected' : ''}`} onClick={() => { setActiveId(s.id); onJump?.(s.nodeId); onSeek?.(s.step - 1); }}><span className="waterfall-event-step">#{s.step}</span><span className="waterfall-event-main"><strong>{s.variable}</strong><small>{s.watchName}{s.sourceLine ? ` · line ${s.sourceLine}` : ''}</small></span><code title={display(s)}>{clip(display(s))}</code><span className="waterfall-event-dot" title={s.reason}/></button>)}</div>{active && <div className="waterfall-selected-detail"><strong>{active.watchName}: {active.variable}</strong><span>{active.dataType} · {statuses[active.state] || active.state}</span><code>{active.previousValue !== undefined && active.display == null ? `${showValue(active.previousValue)} → ` : ''}{display(active)}</code><small>{active.reason}</small></div>}</div>
         </div>}
     </div>}

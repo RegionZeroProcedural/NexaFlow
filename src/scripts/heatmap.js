@@ -196,3 +196,178 @@ export function watchSamplesFromTrace(events, points) {
   });
   return samples;
 }
+
+// ---------------------------------------------------------------------------
+// Cell samplers: how the shared canvas renderer colours each row over time.
+// A sampler is { key, make(row, view) → (t) => q | null, describe(row, t),
+// ticks(row), legend, title(row) }. `make` returns a stateful function that
+// is called with non-decreasing t, so samplers can walk rows with pointers.
+// q is an intensity in [0, 1]; null means "no observation" (empty colour).
+// ---------------------------------------------------------------------------
+export const logish = x => Math.sign(x) * Math.log1p(Math.abs(x));
+/** Number of sorted entries ≤ t (binary search). */
+export function upperBound(sorted, t, key = null) {
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if ((key ? sorted[mid][key] : sorted[mid]) <= t) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+/** Latest observation of a row at or before t. */
+export function valueAt(row, t) {
+  const k = upperBound(row.changes, t, 't');
+  return k ? row.changes[k - 1] : null;
+}
+
+/** Value Heatmap: what each variable contains (or, in its "recent writes"
+ * mode, how recently it was written). Driven by the shared colour settings. */
+export function valueSampler(settings) {
+  const log = settings.scale === 'log';
+  return {
+    key: `value:${settings.mode}:${settings.scale}`,
+    legend: settings.mode === 'activity' ? ['idle', 'just written'] : ['low', 'high'],
+    make(row, { z }) {
+      const tau = Math.max(2, 10 / z);
+      const mn = log ? logish(row.min) : row.min, mx = log ? logish(row.max) : row.max, span = mx - mn;
+      const changes = row.changes;
+      let j = -1;
+      return t => {
+        while (j + 1 < changes.length && changes[j + 1].t <= t) j++;
+        const c = j >= 0 ? changes[j] : null;
+        if (!c) return null;
+        if (settings.mode === 'activity') return Math.exp(-(t - c.t) / tau);
+        if (typeof c.x !== 'number') return null;
+        const xv = log ? logish(c.x) : c.x;
+        return span > 0 ? (xv - mn) / span : 0.22; // constant rows stay dim so changes stand out
+      };
+    },
+    describe(row, t) {
+      const c = valueAt(row, t);
+      return [{ text: c ? c.v?.s : 'not set yet', kind: 'code' }, c?.flag && { text: `⚠ ${c.sample?.reason}`, kind: 'warn' }].filter(Boolean);
+    },
+    ticks: row => row.changes,
+    title: row => `${row.group} › ${row.label}${row.numeric ? ` · range ${row.min} … ${row.max}` : row.distinct != null ? ` · ${row.distinct} distinct values` : ''}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Activity Heatmap: how often each variable *changes*, independent of the
+// magnitude of its values. Built once per run from a value model's
+// row.changes; per-frame work is limited to binary searches.
+// ---------------------------------------------------------------------------
+export const ACTIVITY_WINDOWS = [1, 5, 10, 25];
+export const DEFAULT_ACTIVITY_SETTINGS = { window: 5, smoothing: false, normalize: 'peak', sort: 'activity' };
+const ACTIVITY_FLOOR = 0.12; // any real change stays visibly above "confirmed unchanged"
+
+/** Identity of a recorded value. Snapshots compare by type, preview and
+ * magnitude; raw primitives by type and value (so 1 ≠ "1"). */
+export function valueKey(v) {
+  if (v !== null && typeof v === 'object' && typeof v.s === 'string' && typeof v.t === 'string') return `${v.t}|${v.s}|${v.n ?? ''}`;
+  if (typeof v === 'number' && Number.isNaN(v)) return 'number|NaN';
+  return `${v === null ? 'null' : typeof v}|${String(v)}`;
+}
+
+/** Detect real value changes per row. The first observation is a baseline,
+ * repeated identical assignments are not changes, and rows remember when
+ * they were first observed so "missing" differs from "unchanged". */
+export function buildActivityModel(model) {
+  const rows = (model?.rows || []).map(row => {
+    const times = [];
+    let previous = null, first = null, observations = 0;
+    for (const change of row.changes) {
+      if (change.v === undefined) continue; // not an observation
+      observations++;
+      const key = valueKey(change.v);
+      if (first === null) { first = change.t; previous = key; continue; }
+      if (key !== previous) { times.push(change.t); previous = key; }
+    }
+    return { id: row.id, label: row.label, group: row.group, fnId: row.fnId, first, observations, times: Int32Array.from(times), profiles: new Map(), tickList: null };
+  });
+  return { length: Math.max(1, model?.length || 1), rows, peaks: new Map() };
+}
+
+/** Changes of a row inside the rolling window (t − w, t]. */
+export const changesInWindow = (row, t, w) => upperBound(row.times, t) - upperBound(row.times, t - w);
+
+/** Per-row window counts at each change, with running maxima, cached per
+ * window size. Lets statistics up to any playback position use one binary
+ * search per row instead of rescanning the history. */
+function windowProfile(row, w) {
+  let profile = row.profiles.get(w);
+  if (profile) return profile;
+  const n = row.times.length, counts = new Int32Array(n), bestIndex = new Int32Array(n);
+  for (let i = 0, lo = 0; i < n; i++) {
+    while (row.times[lo] <= row.times[i] - w) lo++;
+    counts[i] = i - lo + 1;
+    bestIndex[i] = i === 0 || counts[i] > counts[bestIndex[i - 1]] ? i : bestIndex[i - 1];
+  }
+  profile = { counts, bestIndex };
+  row.profiles.set(w, profile);
+  return profile;
+}
+/** Highest window count anywhere in the run (keeps the colour scale stable). */
+export function activityPeak(activity, w) {
+  if (activity.peaks.has(w)) return activity.peaks.get(w);
+  let peak = 0;
+  for (const row of activity.rows) { const p = windowProfile(row, w); if (p.counts.length) peak = Math.max(peak, p.counts[p.bestIndex[p.counts.length - 1]]); }
+  activity.peaks.set(w, peak);
+  return peak;
+}
+
+/** Diagnostics for everything observed up to timeline index `upTo`. */
+export function activityStats(activity, w, upTo = Infinity) {
+  let totalChanges = 0, activeRows = 0, observedRows = 0, mostActive = null, peak = null;
+  for (const row of activity.rows) {
+    if (row.first === null || row.first > upTo) continue;
+    observedRows++;
+    const k = upperBound(row.times, upTo);
+    if (!k) continue;
+    totalChanges += k; activeRows++;
+    if (!mostActive || k > mostActive.count) mostActive = { row, count: k };
+    const profile = windowProfile(row, w);
+    const best = profile.bestIndex[k - 1];
+    if (!peak || profile.counts[best] > peak.count) peak = { row, count: profile.counts[best], t: row.times[best] };
+  }
+  return { totalChanges, activeRows, observedRows, rows: activity.rows.length, mostActive, peak, window: w };
+}
+
+/** Rows ordered by changes observed up to `upTo` (ties keep run order). */
+export function sortByActivity(rows, upTo = Infinity) {
+  return rows.map((row, index) => ({ row, index, count: upperBound(row.times, upTo) }))
+    .sort((a, b) => b.count - a.count || a.index - b.index).map(entry => entry.row);
+}
+
+/** Activity sampler for the shared renderer. Intensity = changes in the
+ * rolling window ÷ (run peak or window length), never the values themselves.
+ * Smoothing blends in the two previous windows (causal: past activity only
+ * decays, no change events are created). Positions at or beyond `revealed`
+ * (not yet played back) are left empty. */
+export function activitySampler(activity, settings, revealed = null) {
+  const w = settings.window;
+  const denominator = settings.normalize === 'absolute' ? w : Math.max(1, activityPeak(activity, w));
+  const intensity = count => (count <= 0 ? 0 : ACTIVITY_FLOOR + (1 - ACTIVITY_FLOOR) * Math.min(1, count / denominator));
+  return {
+    key: `activity:${w}:${settings.smoothing}:${settings.normalize}:${revealed}`,
+    legend: ['unchanged', settings.normalize === 'absolute' ? `${w} changes / ${w} steps` : `peak (${denominator} / ${w} steps)`],
+    intensity,
+    make(row) {
+      const times = row.times, pointers = [0, 0, 0, 0]; // entries ≤ t − k·w
+      return t => {
+        if (row.first === null || t < row.first || (revealed != null && t >= revealed)) return null;
+        for (let k = 0; k < 4; k++) { const limit = t - k * w; while (pointers[k] < times.length && times[pointers[k]] <= limit) pointers[k]++; }
+        const current = pointers[0] - pointers[1];
+        const count = settings.smoothing ? (2 * current + (pointers[1] - pointers[2]) + (pointers[2] - pointers[3])) / 4 : current;
+        return intensity(count);
+      };
+    },
+    describe(row, t) {
+      if (row.first === null || t < row.first) return [{ text: 'no observation yet', kind: 'meta' }];
+      if (revealed != null && t >= revealed) return [{ text: 'not reached in playback yet', kind: 'meta' }];
+      const count = changesInWindow(row, t, w);
+      return [
+        { text: `${count} change${count === 1 ? '' : 's'} in last ${w} step${w === 1 ? '' : 's'}`, kind: 'code' },
+        { text: `intensity ${Math.round(intensity(count) * 100)}% · ${upperBound(row.times, t)} changes so far`, kind: 'meta' },
+      ];
+    },
+    ticks: row => row.tickList || (row.tickList = Array.from(row.times, t => ({ t }))),
+    title: row => `${row.group} › ${row.label} · ${row.times.length} changes over ${row.observations} observations`,
+  };
+}

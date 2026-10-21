@@ -350,3 +350,14 @@ button{transition:background .14s ease,color .14s ease,border-color .14s ease,op
 .readable-outline p{font-size:11px;color:#a7adc3;line-height:1.55;margin:8px 0}
 .readable-outline pre{margin:0;max-height:310px;overflow:auto;background:#151c2a;border:1px solid #2e3750;
   border-radius:6px;padding:12px;color:#c4ebdf;font:11px/1.7 ui-monospace,Consolas,monospace;tab-size:2;white-space:pre}
+
+/* v1.4: Activity Heatmap tab (change frequency per variable) */
+.waterfall-body>.activity-heatmap{flex:1;min-height:0}
+.activity-heatmap{display:flex;flex-direction:column;gap:5px;min-height:0;height:100%}
+.activity-heatmap>.hm{flex:1;min-height:0}
+.activity-summary{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:10.5px;color:#97a0c0;padding:2px 2px 0}
+.activity-summary b{color:#eef1ff;font-weight:700}
+.hm-select{background:#10131f;border:1px solid #394358;border-radius:6px;color:#dfe4f6;font-size:10.5px;height:22px;padding:0 4px;outline:none}
+.hm-select:focus{border-color:#7a68c8}
+.hm-check{display:flex;align-items:center;gap:4px;font-size:10.5px;color:#aab3cc;white-space:nowrap}
+.hm-tip-meta{color:#9aa3c2}

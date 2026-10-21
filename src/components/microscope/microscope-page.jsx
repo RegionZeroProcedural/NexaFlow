@@ -46,6 +46,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
   const [selectedId, setSelectedId] = useState(null);
   const [run, setRun] = useState(null);
   const [cursor, setCursor] = useState(0);
+  const [revealed, setRevealed] = useState(0); // furthest playback position (kept when rewinding)
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(3);
   const [follow, setFollow] = useState(true);
@@ -154,6 +155,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
     if (current.fn && current.fn !== fnIdRef.current && project.functions[current.fn] && (current.k === 'enter' || current.k === 'eval' || current.k === 'stmt')) setFnId(current.fn);
   }, [follow, current, run, project]);
 
+  useEffect(() => { setRevealed(r => Math.max(r, cursor)); }, [cursor]);
   // ---------- Playback ----------
   useEffect(() => {
     if (!playing || !run) return undefined;
@@ -189,7 +191,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
       const prepared = prepareRun(result, targetId, args);
       prepared.heatmap = heatmapFromTrace(result.events, project);
       prepared.samples = watchSamplesFromTrace(result.events, watchpoints);
-      setRun(prepared); setCursor(0); setPlaying(true); setBusy(false); setTab('run');
+      setRun(prepared); setCursor(0); setRevealed(0); setPlaying(true); setBusy(false); setTab('run');
       if (targetId !== fnId) navigate(targetId);
       notify?.(result.halted ? `Stopped: ${result.halted}` : result.error ? `Finished with ${result.error}` : `Traced ${target.name}() · ${result.events.length.toLocaleString()} events`, result.error || result.halted ? 'error' : 'success');
     }, 20);
@@ -218,7 +220,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
   // return to the function the run started from, in its static view.
   const exitSimulation = useCallback(() => {
     const origin = run?.rootFnId;
-    setPlaying(false); setRun(null); setCursor(0);
+    setPlaying(false); setRun(null); setCursor(0); setRevealed(0);
     if (origin && origin !== fnId && project.functions[origin]) navigate(origin);
     setFitSignal(n => n + 1);
   }, [run, fnId, project, navigate]);
@@ -308,7 +310,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
         </div>
         {current && <div className="mx-now"><span className={`mx-now-kind k-${current.k}`}>{current.k}</span>{describeEvent(current, project)}</div>}
       </main>
-      <WaterfallInspector className="mx-waterfall" title="Execution Waterfall" run={waterfallRun} cursor={run ? cursor : null} isPlaying={playing} collapsed={waterfallCollapsed} setCollapsed={setWaterfallCollapsed} onSeek={run ? (t => { setPlaying(false); setCursor(t + 1); }) : null}/>
+      <WaterfallInspector className="mx-waterfall" title="Execution Waterfall" run={waterfallRun} cursor={run ? cursor : null} revealed={run ? Math.max(revealed, cursor) : null} isPlaying={playing} collapsed={waterfallCollapsed} setCollapsed={setWaterfallCollapsed} onSeek={run ? (t => { setPlaying(false); setCursor(t + 1); }) : null}/>
       </div>
 
       <aside className="mx-panel">
