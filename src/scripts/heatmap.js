@@ -77,7 +77,12 @@ export function heatmapFromTrace(events, project) {
     else if (e.k === 'exit' && e.v && !e.threw) add(`${e.fn}::⮐`, '⮐ return', fnLabel(project, e.fn), e.fn, t, e.v);
   });
   const ordered = [...rows.values()].sort((a, b) => a.changes[0].t - b.changes[0].t);
-  return finalizeModel({ length: events.length, rows: ordered });
+  // Statement steps: the interpreter timeline has one entry per evaluated
+  // expression, so "execution steps" for activity windows count statements.
+  const stepOf = new Int32Array(events.length);
+  let step = 0;
+  events.forEach((e, i) => { if (e.k === 'stmt') step++; stepOf[i] = step; });
+  return finalizeModel({ length: events.length, rows: ordered, stepOf });
 }
 
 /** Variables of a regular flow simulation (or an imported single function). */
@@ -269,23 +274,33 @@ export function valueKey(v) {
  * repeated identical assignments are not changes, and rows remember when
  * they were first observed so "missing" differs from "unchanged". */
 export function buildActivityModel(model) {
+  const length = Math.max(1, model?.length || 1);
+  // Windows are measured in execution steps. Interpreter traces supply a
+  // timeline-index -> statement-step map; flow simulations already use steps.
+  const stepOf = model?.stepOf || null;
+  const stepAt = stepOf ? t => stepOf[Math.max(0, Math.min(stepOf.length - 1, t))] : t => t;
   const rows = (model?.rows || []).map(row => {
-    const times = [];
+    const eventTimes = [];
     let previous = null, first = null, observations = 0;
     for (const change of row.changes) {
       if (change.v === undefined) continue; // not an observation
       observations++;
       const key = valueKey(change.v);
       if (first === null) { first = change.t; previous = key; continue; }
-      if (key !== previous) { times.push(change.t); previous = key; }
+      if (key !== previous) { eventTimes.push(change.t); previous = key; }
     }
-    return { id: row.id, label: row.label, group: row.group, fnId: row.fnId, first, observations, times: Int32Array.from(times), profiles: new Map(), tickList: null };
+    return {
+      id: row.id, label: row.label, group: row.group, fnId: row.fnId, first, observations,
+      eventTimes: Int32Array.from(eventTimes),    // timeline positions (drawing, seeking, playback)
+      times: Int32Array.from(eventTimes, stepAt), // execution steps (rolling windows)
+      profiles: new Map(), tickList: null,
+    };
   });
-  return { length: Math.max(1, model?.length || 1), rows, peaks: new Map() };
+  return { length, rows, peaks: new Map(), stepAt, stepped: Boolean(stepOf) };
 }
 
-/** Changes of a row inside the rolling window (t − w, t]. */
-export const changesInWindow = (row, t, w) => upperBound(row.times, t) - upperBound(row.times, t - w);
+/** Changes of a row inside the rolling window of steps (step − w, step]. */
+export const changesInWindow = (row, step, w) => upperBound(row.times, step) - upperBound(row.times, step - w);
 
 /** Per-row window counts at each change, with running maxima, cached per
  * window size. Lets statistics up to any playback position use one binary
@@ -318,20 +333,20 @@ export function activityStats(activity, w, upTo = Infinity) {
   for (const row of activity.rows) {
     if (row.first === null || row.first > upTo) continue;
     observedRows++;
-    const k = upperBound(row.times, upTo);
+    const k = upperBound(row.eventTimes, upTo);
     if (!k) continue;
     totalChanges += k; activeRows++;
     if (!mostActive || k > mostActive.count) mostActive = { row, count: k };
     const profile = windowProfile(row, w);
     const best = profile.bestIndex[k - 1];
-    if (!peak || profile.counts[best] > peak.count) peak = { row, count: profile.counts[best], t: row.times[best] };
+    if (!peak || profile.counts[best] > peak.count) peak = { row, count: profile.counts[best], step: row.times[best], t: row.eventTimes[best] };
   }
   return { totalChanges, activeRows, observedRows, rows: activity.rows.length, mostActive, peak, window: w };
 }
 
 /** Rows ordered by changes observed up to `upTo` (ties keep run order). */
 export function sortByActivity(rows, upTo = Infinity) {
-  return rows.map((row, index) => ({ row, index, count: upperBound(row.times, upTo) }))
+  return rows.map((row, index) => ({ row, index, count: upperBound(row.eventTimes, upTo) }))
     .sort((a, b) => b.count - a.count || a.index - b.index).map(entry => entry.row);
 }
 
@@ -352,7 +367,8 @@ export function activitySampler(activity, settings, revealed = null) {
       const times = row.times, pointers = [0, 0, 0, 0]; // entries ≤ t − k·w
       return t => {
         if (row.first === null || t < row.first || (revealed != null && t >= revealed)) return null;
-        for (let k = 0; k < 4; k++) { const limit = t - k * w; while (pointers[k] < times.length && times[pointers[k]] <= limit) pointers[k]++; }
+        const step = activity.stepAt(t);
+        for (let k = 0; k < 4; k++) { const limit = step - k * w; while (pointers[k] < times.length && times[pointers[k]] <= limit) pointers[k]++; }
         const current = pointers[0] - pointers[1];
         const count = settings.smoothing ? (2 * current + (pointers[1] - pointers[2]) + (pointers[2] - pointers[3])) / 4 : current;
         return intensity(count);
@@ -361,13 +377,14 @@ export function activitySampler(activity, settings, revealed = null) {
     describe(row, t) {
       if (row.first === null || t < row.first) return [{ text: 'no observation yet', kind: 'meta' }];
       if (revealed != null && t >= revealed) return [{ text: 'not reached in playback yet', kind: 'meta' }];
-      const count = changesInWindow(row, t, w);
+      const step = activity.stepAt(t);
+      const count = changesInWindow(row, step, w);
       return [
         { text: `${count} change${count === 1 ? '' : 's'} in last ${w} step${w === 1 ? '' : 's'}`, kind: 'code' },
-        { text: `intensity ${Math.round(intensity(count) * 100)}% · ${upperBound(row.times, t)} changes so far`, kind: 'meta' },
+        { text: `intensity ${Math.round(intensity(count) * 100)}% · ${upperBound(row.eventTimes, t)} changes so far${activity.stepped ? ` · statement step ${step}` : ''}`, kind: 'meta' },
       ];
     },
-    ticks: row => row.tickList || (row.tickList = Array.from(row.times, t => ({ t }))),
+    ticks: row => row.tickList || (row.tickList = Array.from(row.eventTimes, t => ({ t }))),
     title: row => `${row.group} › ${row.label} · ${row.times.length} changes over ${row.observations} observations`,
   };
 }

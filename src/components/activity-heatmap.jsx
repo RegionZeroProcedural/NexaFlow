@@ -21,11 +21,12 @@ export default function ActivityHeatmap({ model, cursor = null, revealed = null,
   const sampler = useMemo(() => activitySampler(activity, effective, seen), [activity, effective, seen]);
   const view = useMemo(() => ({ length: activity.length, rows: settings.sort === 'activity' ? sortByActivity(activity.rows, upTo) : activity.rows }), [activity, settings.sort, upTo]);
   const name = row => `${row.group} › ${row.label}`;
+  const stepUnit = activity.stepped ? 'statement' : unit;
 
   const controls = <>
     <span className="hm-group-label">Window</span>
     <select className="hm-select" value={w} onChange={e => setSettings({ window: Number(e.target.value) })} aria-label="Activity window size" title="Changes are counted inside this rolling window">
-      {ACTIVITY_WINDOWS.map(size => <option key={size} value={size}>{size} {unit}{size === 1 ? '' : 's'}</option>)}
+      {ACTIVITY_WINDOWS.map(size => <option key={size} value={size}>{size} {stepUnit}{size === 1 ? '' : 's'}</option>)}
     </select>
     <select className="hm-select" value={settings.normalize} onChange={e => setSettings({ normalize: e.target.value })} aria-label="Activity normalisation" title="Peak: brightest = busiest window in this run. Absolute: brightest = a change on every step.">
       <option value="peak">Scale to run peak</option>
@@ -42,7 +43,7 @@ export default function ActivityHeatmap({ model, cursor = null, revealed = null,
     <div className="activity-summary" aria-live="polite">
       <span><b>{stats.totalChanges.toLocaleString()}</b> changes detected</span>
       <span>Most active: {stats.mostActive ? <><b>{name(stats.mostActive.row)}</b> ({stats.mostActive.count})</> : '—'}</span>
-      <span>Peak window: {stats.peak ? <><b>{name(stats.peak.row)}</b> {stats.peak.count}/{w} {unit}{w === 1 ? '' : 's'} ending at {stats.peak.t}</> : '—'}</span>
+      <span>Peak window: {stats.peak ? <><b>{name(stats.peak.row)}</b> {stats.peak.count} change{stats.peak.count === 1 ? '' : 's'} in {w} {stepUnit}{w === 1 ? '' : 's'}, ending at {stepUnit} {stats.peak.step}{activity.stepped ? ` (${unit} ${stats.peak.t})` : ''}</> : '—'}</span>
       <span><b>{stats.activeRows}</b> of {stats.observedRows} observed variable{stats.observedRows === 1 ? '' : 's'} changing</span>
     </div>
     <HeatmapWaterfall model={view} cursor={cursor} revealed={revealed} onSeek={onSeek} sampler={sampler} toolbarExtra={controls} unit={unit} emptyMessage="No variables were written during this run."/>

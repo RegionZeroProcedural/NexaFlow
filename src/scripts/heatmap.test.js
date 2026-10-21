@@ -143,7 +143,7 @@ describe('activity heatmap', () => {
     expect(early.activeRows).toBe(1);
     expect(early.observedRows).toBe(3);
     expect(early.mostActive.row.label).toBe('i');
-    expect(early.peak).toMatchObject({ count: 5, t: 5 });
+    expect(early.peak).toMatchObject({ count: 5, step: 5, t: 5 });
     const full = activityStats(activity, 5);
     expect(full.totalChanges).toBe(20); // 19 counter changes + 1 flag flip
     expect(full.activeRows).toBe(2);
@@ -166,5 +166,20 @@ describe('activity heatmap', () => {
     expect(rowOf(activity, 'hits').times.length).toBe(6);
     expect(rowOf(activity, 'LIMIT').times.length).toBe(0);
     expect(rowOf(activity, 'i').id).toBe(`${project.rootId}::i`); // identity includes the function
+  });
+
+  test('interpreter traces measure windows in executed statements, not raw events', () => {
+    const project = buildProject([{ path: 'p/b.js', text: 'export function main() { let n = 0; while (n < 20) { n = n + 1; } return n; }' }]);
+    const run = traceFunction(project, project.rootId);
+    const activity = buildActivityModel(heatmapFromTrace(run.events, project));
+    expect(activity.stepped).toBe(true);
+    const n = rowOf(activity, 'n');
+    expect(n.times.length).toBe(20);
+    expect(n.eventTimes[1] - n.eventTimes[0]).toBeGreaterThan(5); // many raw events per pass
+    // ...but each pass is only a couple of statements, so a 5-statement window holds several changes
+    expect(activityStats(activity, 5).peak.count).toBeGreaterThanOrEqual(2);
+    // sampling by timeline index still drives drawing and seeking
+    const fn = activitySampler(activity, { ...DEFAULT_ACTIVITY_SETTINGS, window: 5 }).make(n);
+    expect(range(run.events.length).map(t => fn(t)).some(q => q === 1)).toBe(true);
   });
 });
