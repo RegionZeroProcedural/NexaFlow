@@ -132,11 +132,27 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
 
   const activeId = current && current.fn === fnId && current.key && die.byId?.has(current.key) ? current.key : null;
 
+  // ---------- Back: up one layer (previous function), then the board ----------
+  const goBack = useCallback(() => {
+    setSelectedId(null);
+    const last = history[history.length - 1];
+    if (last && last !== fnId && project.functions[last]) { setFnId(last); return; } // e.g. after "Follow calls" moved the view
+    if (history.length > 1) { setHistory(history.slice(0, -1)); setFnId(history[history.length - 2]); return; }
+    onClose();
+  }, [history, fnId, project, onClose]);
+  const backTarget = (() => {
+    const last = history[history.length - 1];
+    if (last && last !== fnId && project.functions[last]) return project.functions[last];
+    return history.length > 1 ? project.functions[history[history.length - 2]] : null;
+  })();
+  const fnIdRef = useRef(fnId);
+  fnIdRef.current = fnId;
+
   // ---------- Follow execution into callees ----------
   useEffect(() => {
     if (!follow || !current || !run) return;
-    if (current.fn && current.fn !== fnId && project.functions[current.fn] && (current.k === 'enter' || current.k === 'eval' || current.k === 'stmt')) setFnId(current.fn);
-  }, [follow, current, run, fnId, project]);
+    if (current.fn && current.fn !== fnIdRef.current && project.functions[current.fn] && (current.k === 'enter' || current.k === 'eval' || current.k === 'stmt')) setFnId(current.fn);
+  }, [follow, current, run, project]);
 
   // ---------- Playback ----------
   useEffect(() => {
@@ -182,7 +198,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
   useEffect(() => {
     const key = e => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-      if (e.key === 'Escape' && !selectedId) { onClose(); return; }
+      if ((e.key === 'Escape' && !selectedId) || (e.altKey && e.key === 'ArrowLeft')) { e.preventDefault(); goBack(); return; }
       if (e.key === 'Escape') setSelectedId(null);
       if (!run) { if (e.key === 'F5') { e.preventDefault(); runFunction(); } return; }
       if (e.key === 'ArrowRight' || e.key === 'F11') { e.preventDefault(); if (e.shiftKey) stepOut(); else stepInto(); }
@@ -196,7 +212,7 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [run, stepInto, stepBack, stepOver, stepOut, cursor, events.length, runFunction, onClose, selectedId]);
+  }, [run, stepInto, stepBack, stepOver, stepOut, cursor, events.length, runFunction, goBack, selectedId]);
 
   // Leave replay mode without closing the microscope: clear the trace and
   // return to the function the run started from, in its static view.
@@ -240,7 +256,8 @@ export default function MicroscopePage({ project, initialFnId, onClose, onShowOn
 
   return <div className="microscope-page" role="dialog" aria-label={`Microscope: ${fn.name}`}>
     <header className="mx-header">
-      <button type="button" className="mx-back" onClick={onClose} title="Back to the call board (Esc)">← Board</button>
+      <button type="button" className="mx-back" onClick={goBack} title={`Back up one layer${backTarget ? ` to ${backTarget.name}()` : ' to the call board'} (Esc / Alt+←)`}>← {backTarget ? backTarget.name.split(' › ').pop() : 'Board'}</button>
+      {backTarget && <button type="button" className="mx-header-button mx-board" onClick={onClose} title="Close the microscope and return to the call board">⌂ Board</button>}
       <div className="mx-title">
         <div className="mx-crumbs">{history.slice(-6).map((id, i, arr) => <React.Fragment key={`${id}-${i}`}><button type="button" className={id === fnId ? 'current' : ''} onClick={() => navigate(id, false)}>{project.functions[id]?.name.split(' › ').pop() || '?'}</button>{i < arr.length - 1 && <span>›</span>}</React.Fragment>)}</div>
         <h1>🔬 {fn.qualifiedName}<span>({fn.params.join(', ')})</span></h1>
