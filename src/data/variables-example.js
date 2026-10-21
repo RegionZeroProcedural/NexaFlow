@@ -13,8 +13,8 @@ export const variablesExampleGraph = {
     { id: 'dv-no', type: 'process', x: 1420, y: 403, title: 'Add shipping', description: 'TODO: add delivery cost' },
     { id: 'dv-complete', type: 'end', x: 1755, y: 122, title: 'Order complete', description: 'Done' },
     { id: 'dv-on-hold', type: 'end', x: 1755, y: 403, title: 'Shipping added', description: 'Done' },
-    { id: 'dv-monitor', type: 'watch', x: 1070, y: 676, title: 'Watch invoice total', description: 'Capture the numeric value during playback', check: 'range', min: 0, max: 100, expected: 'true', expectedType: 'number' },
-    { id: 'dv-watch', type: 'watch', x: 1070, y: 890, title: 'Watch approval flag', description: 'Capture the Boolean output', check: 'type', min: 0, max: 100, expected: 'true', expectedType: 'boolean' },
+    { id: 'dv-monitor', type: 'watch', x: 1070, y: 676, title: 'Watch invoice total', description: 'Capture the numeric value during playback', check: 'range', min: 0, max: 100, expected: 'true', expectedType: 'number', traceVariable: 'port' },
+    { id: 'dv-watch', type: 'watch', x: 1070, y: 890, title: 'Watch approval flag', description: 'Capture the Boolean output', check: 'type', min: 0, max: 100, expected: 'true', expectedType: 'boolean', traceVariable: 'port' },
     { id: 'dv-note', type: 'comment', x: 30, y: 52, title: 'FUNCTIONS & VARIABLES', description: 'The Function receives two numeric Variable values through wires, computes two typed outputs, and generates a real callable function in JS, TS or Python. Edit the Function body and export code to see language conversion.' },
   ],
   edges: [

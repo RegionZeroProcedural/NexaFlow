@@ -1,3 +1,4 @@
+import { isSafeTestValue } from '../scripts/test-values';
 export const PORTS = {
   start: { inputs: [], outputs: [{ id: 'out', label: 'Next', kind: 'flow', top: 162 }] },
   process: { inputs: [{ id: 'in', label: 'In', kind: 'flow', top: 162 }], outputs: [{ id: 'out', label: 'Next', kind: 'flow', top: 162 }] },
@@ -48,7 +49,30 @@ export const NODE_TYPES = {
   'source-operation': { label: 'Source Operation', category: 'Import', description: 'Editable assignment from source', icon: 'box', accent: '#77b4ff', width: 250 },
   'source-decision': { label: 'Source Condition', category: 'Import', description: 'Condition from imported source', icon: 'branch', accent: '#eeb979', width: 250 },
   'source-return': { label: 'Source Return', category: 'Import', description: 'Return from imported source', icon: 'stop', accent: '#eb9eac', width: 250 },
+  'source-property-read': { label: 'Property Access', category: 'Import', description: 'Inspect property lookup', icon: 'box', accent: '#74baca', width: 225 },
+  'source-property-write': { label: 'Property Write', category: 'Import', description: 'Update a structured value', icon: 'box', accent: '#80d4ac', width: 255 },
+  'source-method': { label: 'Method Call', category: 'Import', description: 'Inspect whitelisted method invocation', icon: 'box', accent: '#af9ee9', width: 235 },
+  'source-optional': { label: 'Optional Chain', category: 'Import', description: 'Optional property access', icon: 'box', accent: '#afc7e6', width: 225 },
+  'source-math': { label: 'Arithmetic', category: 'Import', description: 'Inspect arithmetic operation', icon: 'box', accent: '#75afee', width: 225 },
+  'source-comparison': { label: 'Logic Operation', category: 'Import', description: 'Inspect logical comparison', icon: 'box', accent: '#e9b97e', width: 225 },
+  'source-object': { label: 'Object Literal', category: 'Import', description: 'Object structure and member values', icon: 'box', accent: '#8bd4b8', width: 240 },
+  'source-array': { label: 'Array Literal', category: 'Import', description: 'Array structure', icon: 'box', accent: '#8bd4b8', width: 235 },
+  'source-template': { label: 'Template Literal', category: 'Import', description: 'Interpolated string', icon: 'box', accent: '#8bd4b8', width: 235 },
+  'source-ternary-step': { label: 'Ternary Select', category: 'Import', description: 'Select conditional expression branch', icon: 'branch', accent: '#e5b57e', width: 245 },
+  'source-call': { label: 'Function Dependency', category: 'Import', description: 'Linked function referenced by source; never executes native code', icon: 'box', accent: '#de9ef4', width: 260 },
+  'source-update': { label: 'Increment / Update', category: 'Import', description: 'Simulated local variable update', icon: 'plus', accent: '#77b4ff', width: 250 },
+  'source-declare': { label: 'Declaration', category: 'Import', description: 'Local declaration without initial value', icon: 'box', accent: '#7ebbbd', width: 250 },
+  'source-loop': { label: 'Loop (Not Simulated)', category: 'Import', description: 'Loop preserved; iterations not executed', icon: 'rotate', accent: '#f1a971', width: 250 },
+  'source-switch': { label: 'Switch (Not Simulated)', category: 'Import', description: 'Switch preserved; case selection not simulated', icon: 'branch', accent: '#e6bd82', width: 250 },
+  'source-try': { label: 'Try / Catch (Not Simulated)', category: 'Import', description: 'Exception paths preserved; not executed', icon: 'alert', accent: '#e6a2a2', width: 250 },
+  'source-throw': { label: 'Throw / Exit', category: 'Import', description: 'Unverified throw terminates simulation', icon: 'stop', accent: '#f08893', width: 250 },
+  'source-await': { label: 'Async / Await (Not Simulated)', category: 'Import', description: 'Async expression preserved; not executed', icon: 'alert', accent: '#9fa6ed', width: 250 },
   'source-opaque': { label: 'Unsupported Source', category: 'Import', description: 'Preserved but never executed', icon: 'alert', accent: '#ef806b', width: 250 },
+  'source-value': { label: 'Source Variable / Literal', category: 'Import', description: 'Primitive expression input; read-only view', icon: 'box', accent: '#63c7b1', width: 232 },
+  'source-member': { label: 'Property Access', category: 'Import', description: 'Read-only member lookup in source', icon: 'box', accent: '#b3b5ef', width: 232 },
+  'source-ternary': { label: 'Ternary Branch', category: 'Import', description: 'Read-only conditional expression', icon: 'branch', accent: '#eeb979', width: 232 },
+  'source-call-expr': { label: 'Call Expression', category: 'Import', description: 'Read-only source call operand', icon: 'box', accent: '#de9ef4', width: 232 },
+  'source-operator': { label: 'Source Operator', category: 'Import', description: 'Primitive operator; edit its source statement', icon: 'box', accent: '#78a8f0', width: 232 },
   compare: { label: 'Compare', category: 'Programming', description: 'Compare connected data values', icon: 'branch', accent: '#f4b777', width: 213 },
   add: { label: 'Add (+)', category: 'Operators', description: 'A + B (numbers)', icon: 'plus', accent: '#58c7ec', width: 208 },
   subtract: { label: 'Subtract (−)', category: 'Operators', description: 'A − B (numbers)', icon: 'box', accent: '#58c7ec', width: 208 },
@@ -136,14 +160,15 @@ export function getNodePorts(node) {
   if (isFunctionNode(node)) {
     const inputs = count(node.inputCount, 2), outputs = count(node.outputCount, 1);
     return {
-      inputs: [{ id: 'execute', label: 'EXEC', kind: 'boolean', flowCompatible: true, top: 194 }, ...Array.from({ length: inputs }, (_, i) => ({ id: `in${i + 1}`, label: `in${i + 1}`, kind: 'data', dataType: node.portTypes?.[`in${i + 1}`] || 'any', top: 228 + i * 34 }))],
+      inputs: [{ id: 'execute', label: 'EXEC', kind: 'boolean', flowCompatible: true, top: 194 }, ...Array.from({ length: inputs }, (_, i) => ({ id: `in${i + 1}`, label: node.portLabels?.[`in${i + 1}`] || `in${i + 1}`, kind: 'data', dataType: node.portTypes?.[`in${i + 1}`] || 'any', top: 228 + i * 34 }))],
       outputs: [{ id: 'done', label: 'DONE', kind: 'boolean', flowCompatible: true, top: 194 }, ...Array.from({ length: outputs }, (_, i) => ({ id: `out${i + 1}`, label: `out${i + 1}`, kind: 'data', dataType: node.portTypes?.[`out${i + 1}`] || 'any', top: 228 + i * 34 }))],
     };
   }
+  if (['source-value', 'source-operator', 'source-member', 'source-ternary', 'source-call-expr'].includes(node.type)) return { inputs: [], outputs: [] };
   if (node.type.startsWith('source-')) {
     const n = Number.isInteger(node.flowInCount) ? Math.max(1, Math.min(16, node.flowInCount)) : 1;
     const inputs = node.type === 'source-start' ? [] : Array.from({ length: n }, (_, i) => ({ id: i ? `in${i + 1}` : 'in', label: 'Flow', kind: 'flow', top: 168 + i * 32 }));
-    const outputs = node.type === 'source-start' || node.type === 'source-operation' || node.type === 'source-opaque' ? [{ id: 'out', label: 'Next', kind: 'flow', top: 168 }] : node.type === 'source-decision' ? [{ id: 'true', label: 'Yes', kind: 'flow', top: 168 }, { id: 'false', label: 'No', kind: 'flow', top: 201 }] : [];
+    const outputs = node.type === 'source-start' || node.type === 'source-operation' || node.type === 'source-update' || node.type === 'source-declare' || node.type === 'source-call' || node.type === 'source-property-write' || (node.inspectOnly && node.type.startsWith('source-')) || ['source-opaque', 'source-loop', 'source-switch', 'source-try', 'source-throw', 'source-await'].includes(node.type) ? [{ id: 'out', label: 'Next', kind: 'flow', top: 168 }] : node.type === 'source-decision' ? [{ id: 'true', label: 'Yes', kind: 'flow', top: 168 }, { id: 'false', label: 'No', kind: 'flow', top: 201 }, ...(node.sourceCallCondition || node.richExpression ? [{id:'unknown',label:'Unknown',kind:'flow',top:234}] : [])] : [];
     return { inputs, outputs };
   }
   if (node.type === 'variable') return { inputs: [], outputs: [{ id: 'out', label: node.dataType || 'number', kind: 'data', dataType: node.dataType || 'number', top: 170 }] };
@@ -217,7 +242,7 @@ export function isValidGraph(data) {
   }
   if (data.program !== undefined) {
     const p = data.program;
-    if (!p || p.kind !== 'javascript-function' || typeof p.source !== 'string' || p.source.length > 150000 || typeof p.functionName !== 'string' || !Array.isArray(p.parameters) || p.parameters.length > 16 || !p.parameters.every(v => typeof v === 'string' && /^[A-Za-z_$][\w$]*$/.test(v)) || !p.inputValues || typeof p.inputValues !== 'object' || Array.isArray(p.inputValues) || Object.values(p.inputValues).some(v => v !== null && !(['string', 'number', 'boolean'].includes(typeof v)) || (typeof v === 'number' && !Number.isFinite(v))) || !Array.isArray(p.dataEdges) || p.dataEdges.length > 4000 || p.dataEdges.some(e => !e || typeof e.variable !== 'string' || typeof e.source !== 'string' || typeof e.target !== 'string') || !Array.isArray(p.watchRules) || p.watchRules.length > 50 || p.watchRules.some(r => !r || typeof r.id !== 'string' || typeof r.variable !== 'string' || !['range','equals','type'].includes(r.check) || !Number.isFinite(Number(r.min)) || !Number.isFinite(Number(r.max))) || !Array.isArray(p.importedNodeIds) || !Array.isArray(p.importedEdgeIds) || !Array.isArray(p.originalEdges) || p.originalEdges.length !== p.importedEdgeIds.length) return false;
+    if (!p || p.kind !== 'javascript-function' || typeof p.source !== 'string' || p.source.length > 150000 || (p.workspaceFiles !== undefined && (typeof p.workspaceFiles !== 'object' || Array.isArray(p.workspaceFiles) || Object.keys(p.workspaceFiles).length > 24 || Object.entries(p.workspaceFiles).some(([k, v]) => typeof k !== 'string' || k.length > 260 || typeof v !== 'string' || v.length > 150000) || Object.values(p.workspaceFiles).reduce((a, v) => a + v.length, 0) > 900000)) || typeof p.functionName !== 'string' || !Array.isArray(p.parameters) || p.parameters.length > 16 || !p.parameters.every(v => typeof v === 'string' && /^[A-Za-z_$][\w$]*$/.test(v)) || !p.inputValues || typeof p.inputValues !== 'object' || Array.isArray(p.inputValues) || Object.values(p.inputValues).some(v => !isSafeTestValue(v)) || !Array.isArray(p.dataEdges) || p.dataEdges.length > 4000 || p.dataEdges.some(e => !e || typeof e.variable !== 'string' || typeof e.source !== 'string' || typeof e.target !== 'string') || !Array.isArray(p.watchRules) || p.watchRules.length > 50 || p.watchRules.some(r => !r || typeof r.id !== 'string' || typeof r.variable !== 'string' || !['range','equals','type'].includes(r.check) || !Number.isFinite(Number(r.min)) || !Number.isFinite(Number(r.max))) || !Array.isArray(p.importedNodeIds) || !Array.isArray(p.importedEdgeIds) || !Array.isArray(p.originalEdges) || p.originalEdges.length !== p.importedEdgeIds.length) return false;
     if (data.nodes.some(n => n.type.startsWith('source-') && (n.expressionText !== undefined && (typeof n.expressionText !== 'string' || n.expressionText.length > 2000) || n.sourceStart !== undefined && (!Number.isInteger(n.sourceStart) || n.sourceStart < 0 || n.sourceStart > p.source.length) || n.sourceEnd !== undefined && (!Number.isInteger(n.sourceEnd) || n.sourceEnd < 0 || n.sourceEnd > p.source.length)))) return false;
   }
   // Imported project files must obey the same DAG invariant as interactive edits.

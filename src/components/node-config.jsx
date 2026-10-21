@@ -1,6 +1,6 @@
 import React from 'react';
 import { CODE_LANGUAGES, DATA_TYPES, getNodePorts, getFunctionDataInputs, isFunctionNode, LOGIC_GATES, MAX_PORTS, NODE_SHAPES } from '../data/node-types';
-import { parseSafeExpression } from '../scripts/javascript-import';
+import { parseSafeExpression, listJavaScriptFunctions, validateSourceExpression, moduleCallableNames } from '../scripts/javascript-import';
 import { parseFunctionBody, valueType } from '../scripts/function-language';
 
 function Counter({ label, value, min, max, onChange }) {
@@ -9,7 +9,15 @@ function Counter({ label, value, min, max, onChange }) {
 
 export function showValue(value) {
   if (value == null) return 'UNKNOWN';
-  return typeof value === 'string' ? JSON.stringify(value) : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : String(value);
+  if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'object') {
+    try {
+      const json = JSON.stringify(value);
+      return json?.length > 230 ? `${json.slice(0, 227)}…` : json || '[structured value]';
+    } catch (_) { return '[structured value]'; }
+  }
+  return String(value);
 }
 
 export default function NodeConfig({ node, graph, updateNode, preview, simulation, visibleSteps = 0 }) {
@@ -24,7 +32,13 @@ export default function NodeConfig({ node, graph, updateNode, preview, simulatio
   }
   const changeType = (port, type) => set({ portTypes: { ...(node.portTypes || {}), [port]: type } });
   return <>
-    {sourceNode && <div className="property-section"><div className="property-label">SOURCE IMPORT • LINE {node.sourceLine || '—'}</div>{node.expressionText !== undefined && <><label className="field-label">Editable expression<textarea aria-label="Imported expression" rows={4} spellCheck="false" value={node.expressionText} onChange={e => set({ expressionText: e.target.value, title: node.statementKind === 'return' ? `return ${e.target.value}` : node.statementKind === 'test' ? `if ${e.target.value}` : `${node.variableName} = ${e.target.value}` })}/></label>{(() => { try { parseSafeExpression(node.expressionText); return <p className="node-code-status success">✓ Safe expression • simulation and source patch enabled.</p>; } catch (e) { return <p className="node-code-status error">⚠ {e.message}. Export blocked.</p>; } })()}</>}{node.type === 'source-opaque' && <div className="node-code-status error">Unsupported: {node.unsupportedReason}. Code is preserved byte-for-byte; simulation stops before it.</div>}<p className="config-help">Changes to source-backed connections and nodes do not round-trip. Only expression edits are safely written back to JavaScript in this release.</p></div>}
+    {sourceNode && <div className="property-section"><div className="property-label">SOURCE IMPORT • LINE {node.sourceLine || '—'}</div>{node.expressionText !== undefined && !node.sourceCallCondition && !['source-operator', 'source-value', 'source-member', 'source-ternary', 'source-call-expr', 'source-call', 'source-update'].includes(node.type) && <><label className="field-label">Editable expression<textarea aria-label="Imported expression" rows={4} spellCheck="false" value={node.expressionText} onChange={e => set({ expressionText: e.target.value, title: node.statementKind === 'return' ? `return ${e.target.value}` : node.statementKind === 'test' ? `if ${e.target.value}` : `${node.variableName} = ${e.target.value}` })}/></label>{(() => { try { validateSourceExpression(node.expressionText, graph?.program?.source ? moduleCallableNames(graph.program.source) : null); return <p className="node-code-status success">✓ Restricted expression • simulation and source patch enabled.</p>; } catch (e) { return <p className="node-code-status error">⚠ {e.message}. Export blocked.</p>; } })()}</>}{['source-operator','source-value','source-member','source-ternary','source-call-expr'].includes(node.type) && <div className="node-code-status success">Read-only expression component: {node.expressionText}. Select its parent assignment or condition to edit and reimport to refresh the atom diagram.</div>}{node.sourceCallCondition && <div className="node-code-status">Read-only condition containing a Function Dependency. The interpreter can follow the TRUE/FALSE path when every necessary helper is safely interpreted. Otherwise it takes UNKNOWN and taints the affected variables.</div>}{node.type === 'source-call' && <div className="dependency-inspector"><div className="node-code-status">Linked call: <strong>{node.calleeName}</strong> • {node.dependencyPath || 'unresolved'} • {node.dependencyStatus || 'unresolved'}</div><p className="config-help">This is a compact function dependency, not its expanded implementation. Arguments are interpreted from the parent function's variables. Resolved local pure calls use the bounded isolated interpreter; unsupported or unresolved dependencies produce UNKNOWN without executing native JavaScript.</p><code>{node.callSource || node.title}</code>{(() => {
+      const source = graph?.program?.workspaceFiles?.[node.dependencyPath];
+      if (!source) return null;
+      const chosen = listJavaScriptFunctions(source).find(fn => fn.name === node.dependencyName);
+      if (!chosen) return null;
+      return <details className="dependency-source-preview"><summary>Preview {node.dependencyName}() from {node.dependencyPath} (lines {chosen.line}–{chosen.endLine})</summary><pre>{source.split('\n').slice(chosen.line - 1, Math.min(chosen.endLine, chosen.line + 69)).join('\n')}</pre><small>Read-only reference. This source is NOT executed, imported, or modified by the current focused-function export.</small></details>;
+    })()}</div>}{['source-opaque','source-loop','source-switch','source-try','source-throw','source-await'].includes(node.type) && <div className="node-code-status error">Unsupported: {node.unsupportedReason}. Preserved exactly; skipped during simulation. Following values may be UNKNOWN and execution is unverified.</div>}<p className="config-help">Changes to source-backed connections and nodes do not round-trip. Only expression edits are safely written back to JavaScript in this release.</p></div>}
     {node.type === 'watch' && (() => {
       const sourceEdge = graph?.edges.find(e => e.target === node.id && e.targetPort === 'in');
       const source = graph?.nodes.find(n => n.id === sourceEdge?.source);

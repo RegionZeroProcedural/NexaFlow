@@ -1,0 +1,108 @@
+/** Dependency-light integration checks for Nexa Flow 1.0. No npm install needed. */
+const fs = require('fs');
+const path = require('path');
+const assert = require('assert');
+const ts = require('/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript');
+const base = path.join(__dirname, '..');
+const root = path.join(base, 'src');
+const cache = new Map();
+function localRequire(req, origin) {
+  if (!req.startsWith('.')) return require(req);
+  const stem = path.resolve(path.dirname(origin), req);
+  const file = [stem, stem + '.js', stem + '.jsx', stem + '.mjs'].find(fs.existsSync);
+  if (!file) throw Error('Missing module ' + req);
+  if (cache.has(file)) return cache.get(file).exports;
+  const mod = { exports: {} }; cache.set(file, mod);
+  const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+    fileName: file.endsWith('.mjs') ? file + '.js' : file,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React },
+  }).outputText;
+  (new Function('require', 'module', 'exports', output))((r) => localRequire(r, file), mod, mod.exports);
+  return mod.exports;
+}
+const { importJavaScriptFunction, exportImportedJavaScript, listJavaScriptFunctions } = localRequire('./scripts/javascript-import.js', path.join(root, 'entry.js'));
+const { createSourceWorkspace, resolveFunction, resolveModulePath } = localRequire('./scripts/source-workspace.js', path.join(root, 'entry.js'));
+const { simulateImportedProgram } = localRequire('./scripts/forensics.js', path.join(root, 'entry.js'));
+const { isValidGraph } = localRequire('./data/node-types.js', path.join(root, 'entry.js'));
+let checks = 0;
+const check = (cond, message) => { assert.ok(cond, message); checks++; };
+const project = path.join(base, 'examples', 'javascript-project');
+const names = ['src/checkout.js','src/lib/pricing.js','src/lib/tax.js'];
+const files = Object.fromEntries(names.map(name => ['project/' + name, fs.readFileSync(path.join(project,name),'utf8')]));
+const ws = createSourceWorkspace(files);
+check(resolveModulePath('project/src/checkout.js','./lib/pricing.js',ws.files) === 'project/src/lib/pricing.js','resolve relative ES import');
+check(resolveModulePath('project/src/checkout.js','../../../../etc/passwd',ws.files) === null,'prevent path escape');
+check(resolveFunction(ws,'project/src/checkout.js','getSubtotal').path === 'project/src/lib/pricing.js','resolve named import from other file');
+check(resolveFunction(ws,'project/src/checkout.js','tax').path === 'project/src/lib/tax.js','resolve second dependency file');
+const main = 'project/src/checkout.js';
+const graph = importJavaScriptFunction(files[main],main,0,ws);
+check(isValidGraph(graph),'valid cross-file graph');
+check(graph.nodes.filter(n=>n.type==='source-call').length===3,'compact helper cards');
+check(graph.nodes.filter(n=>n.type==='source-call').every(n=>n.dependencyStatus==='linked'),'helper cards resolve');
+check(graph.nodes.some(n=>n.type==='source-update'),'compound update node');
+check(graph.nodes.some(n=>n.type==='source-operator'),'expanded primitive operators');
+check(graph.nodes.every(n=>n.type!=='function'),'dependencies not expanded into editable function bodies');
+check(graph.program.workspaceFiles[main]===files[main],'source file bundle preserved');
+check(exportImportedJavaScript(graph)===files[main],'unmodified focused source round trips byte for byte');
+graph.program.inputValues={price:20,quantity:2,discount:10};
+const exec=simulateImportedProgram(graph);
+check(Math.abs(exec.environment.$return-39.4)<1e-9,'safe two-file helper call chain computes expected result');
+check(exec.skippedOperations===0 && !exec.approximate,'supported calls stay verified');
+const second=importJavaScriptFunction(files[main],main,1,ws);
+second.program.inputValues={price:20,quantity:2};
+check(second.nodes.filter(n=>n.type==='source-call').length===2,'multiple helper calls nested inside expression');
+check(simulateImportedProgram(second).environment.$return===false,'nested pure calls in comparisons');
+const nestedFiles={'p/main.js':`import {a} from './a.js'; import {b} from './b.js'; export function combined(x){ return a(x)+b(x) }`, 'p/a.js':`export function a(x){return x+1}`, 'p/b.js':`export function b(x){return x*2}`};
+const nestedWorkspace=createSourceWorkspace(nestedFiles);
+const nested=importJavaScriptFunction(nestedFiles['p/main.js'],'p/main.js',0,nestedWorkspace);
+nested.program.inputValues={x:4};
+check(isValidGraph(nested),'nested expression graph valid');
+check(nested.nodes.filter(n=>n.type==='source-call').length===2,'two compact dependencies for one expression');
+check(simulateImportedProgram(nested).environment.$return===13,'two nested helper calls compute precisely');
+const alt=importJavaScriptFunction('function short(x) { const result = false && unsafe(x); return result; }');
+check(simulateImportedProgram(alt).skippedOperations===0,'unreached unsafe function does not run or contaminate result');
+const unsafe=importJavaScriptFunction('function unresolved(x) { const result = external(x); let independent = 9; return independent; }');
+const unchecked=simulateImportedProgram(unsafe);
+check(unsafe.nodes.some(n=>n.type==='source-call' && n.dependencyStatus==='unresolved'),'unresolved call visible');
+check(unchecked.skippedOperations===1 && unchecked.approximate,'unsupported call flagged and skipped');
+check(unchecked.environment.$return===9,'safe independent calculation continues');
+const structs=importJavaScriptFunction('function unsupported(x) { while(x > 3) {x--;} switch(x) {case 1: x=6;break;} try { x=2; } catch(e) {x=3;} throw Error(x); }');
+for(const type of ['source-loop','source-switch','source-try','source-throw']) check(structs.nodes.some(n=>n.type===type),`${type} specialized unsupported node`);
+check(isValidGraph(structs),'specialized graph structurally valid');
+const update=importJavaScriptFunction('function updates(x) { let a=1,b=2; a += 2; b++; return a+b; }');
+check(update.nodes.filter(n=>n.type==='source-update').length===2,'update nodes for += and ++');
+check(simulateImportedProgram(update).environment.$return===6,'updates simulate correctly');
+const changing=importJavaScriptFunction(files[main],main,0,ws);
+changing.nodes.find(n=>n.variableName==='total').expressionText='taxed + 10';
+check(exportImportedJavaScript(changing).includes('let total = taxed + 10;'),'editable parent source expression updates');
+check(exportImportedJavaScript(changing).includes("import { tax } from './lib/tax.js'"),'source imports preserved');
+const fDefault={'src/main.js':`import helper from './helper.js'; export function main(x){return helper(x)}`, 'src/helper.js':`export default function calculator(x){return x+2}`};
+const defaultW=createSourceWorkspace(fDefault);
+check(resolveFunction(defaultW,'src/main.js','helper').name==='calculator','default import alias resolves');
+const defaultG=importJavaScriptFunction(fDefault['src/main.js'],'src/main.js',0,defaultW);
+defaultG.program.inputValues={x:2};
+check(simulateImportedProgram(defaultG).environment.$return===4,'default export helper interpreted');
+const linkedCondition = {
+  'app/main.js': `import {check} from './helper.js'; export function f(x) { let score=0; if (check(x)) { score=10; } else { score=20; } return score; }`,
+  'app/helper.js': `export function check(x) { return x >= 5; }`,
+};
+const conditionWs=createSourceWorkspace(linkedCondition);
+const condGraph=importJavaScriptFunction(linkedCondition['app/main.js'],'app/main.js',0,conditionWs);
+check(isValidGraph(condGraph),'linked condition structure valid');
+check(condGraph.nodes.some(n=>n.type==='source-call' && n.callAuxiliary),'condition helper is compact function reference');
+check(condGraph.nodes.some(n=>n.type==='source-decision' && n.sourceCallCondition),'condition remains explicit branching node');
+condGraph.program.inputValues={x:5};
+check(simulateImportedProgram(condGraph).environment.$return===10,'resolved helper controls TRUE branch');
+condGraph.program.inputValues={x:1};
+check(simulateImportedProgram(condGraph).environment.$return===20,'resolved helper controls FALSE branch');
+const unknownCond=importJavaScriptFunction('function f(x) {let count=0;if (unknown(x)) count=10;else count=20;let independent=3;return independent;}');
+check(isValidGraph(unknownCond),'unresolved branch structure is valid');
+const unknownRun=simulateImportedProgram(unknownCond);
+check(unknownRun.environment.$return===3 && unknownRun.environment.count===null,'unknown condition bypasses branches, independent steps continue');
+check(unknownRun.skippedOperations===1 && unknownRun.approximate,'unknown condition explicitly unverified');
+const jsxFile=fs.readFileSync(path.join(root,'pages','editor.jsx'),'utf8');
+const css=fs.readFileSync(path.join(root,'App.css'),'utf8');
+check(jsxFile.includes('top-reveal') && jsxFile.includes('bottom-reveal'),'slide-out docks integrated in editor');
+check(css.includes('focus-within') && css.includes('prefers-reduced-motion'),'docks accessible and reduced motion supported');
+check(jsxFile.includes('webkitdirectory') && jsxFile.includes('multiple accept=".js,.mjs'),'multi-file/folder import UI present');
+console.log(`PASS: ${checks} v1.0 multi-file source import / compact dependencies / safe runtime / source preservation / dock assertions.`);

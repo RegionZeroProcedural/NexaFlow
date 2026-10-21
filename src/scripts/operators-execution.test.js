@@ -1,5 +1,5 @@
 import { operatorsExampleGraph } from '../data/operators-example';
-import { getNodePorts, getFunctionDataInputs, isValidGraph, DATA_OPERATORS, createNode } from '../data/node-types';
+import { getNodePorts, getFunctionDataInputs, isValidGraph, DATA_OPERATORS, createNode, portPosition } from '../data/node-types';
 import { simulateControlFlow } from './simulate-control-flow';
 import { prepareWaterfallRun } from './waterfall';
 import { findNearbyPort } from './connection-utils';
@@ -64,9 +64,12 @@ test('eight typed operator nodes support data transformation', () => {
 });
 
 test('canvas connection hitbox works without relying on pointerup DOM event target', () => {
-  const candidate = findNearbyPort(operatorsExampleGraph.nodes, 738, 527, { left: 0, top: 0 }, { x: 0, y: 0 }, 1, 'out');
+  const fn = operatorsExampleGraph.nodes.find(n => n.id === 'op-function');
+  const exec = portPosition(fn, 'execute', 'in');
+  const candidate = findNearbyPort(operatorsExampleGraph.nodes, exec.x - 2, exec.y - 2, { left: 0, top: 0 }, { x: 0, y: 0 }, 1, 'out');
   expect(candidate).toMatchObject({ nodeId: 'op-function', portId: 'execute', direction: 'in' });
-  const transformed = findNearbyPort(operatorsExampleGraph.nodes, 1476, 966, { left: 0, top: 0 }, { x: 0, y: 0 }, 2, 'out');
+  // At 2x zoom the same screen point maps to a different graph location.
+  const transformed = findNearbyPort(operatorsExampleGraph.nodes, exec.x - 2, exec.y - 2, { left: 0, top: 0 }, { x: 0, y: 0 }, 2, 'out');
   expect(transformed).toBeNull();
 });
 

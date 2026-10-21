@@ -125,7 +125,9 @@ const port = defs.getNodePorts(operatorsExampleGraph.nodes.find(n => n.id === 'o
 check(port.inputs.some(p => p.id === 'execute' && p.kind === 'boolean'), 'EXEC separate Boolean port');
 check(port.outputs.some(p => p.id === 'done' && p.kind === 'boolean'), 'DONE separate Boolean port');
 check(defs.getFunctionDataInputs(operatorsExampleGraph.nodes.find(n => n.id === 'op-function')).length === 2, 'input parser excludes EXEC');
-const nearby = findNearbyPort(operatorsExampleGraph.nodes, 740, 523, { left: 0, top: 0 }, {x:0,y:0}, 1, 'out');
+const testingNode = operatorsExampleGraph.nodes.find(n=>n.id==='op-function');
+const execPort = defs.portPosition(testingNode,'execute','in');
+const nearby = findNearbyPort(operatorsExampleGraph.nodes, execPort.x, execPort.y, { left: 0, top: 0 }, {x:0,y:0}, 1, 'out');
 check(nearby && nearby.portId === 'execute', 'loose pointer hit-testing finds the EXEC port');
 for (const language of ['javascript', 'typescript', 'python']) {
   const code = generateCode(operatorsExampleGraph, language);

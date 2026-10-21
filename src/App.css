@@ -77,6 +77,7 @@ button{transition:background .14s ease,color .14s ease,border-color .14s ease,op
 .snapshot-list{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto}
 .snapshot-list>div{display:flex;justify-content:space-between;gap:7px;padding:8px;background:#27283d;border-radius:5px}
 .snapshot-list strong{color:#86ded0;word-break:break-word}
+.snapshot-list strong.is-unknown,.value-event-list strong.is-unknown{color:#f1a971;font-style:italic}
 .assertion-entry{border:1px solid #825849;border-radius:7px;background:#3d2a2a;color:#f9c1b6;padding:10px;display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px}
 .assertion-entry small{color:#dcad95}.assertion-entry span{color:#fff;text-decoration:underline}
 .value-event-list{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:4px}
@@ -242,3 +243,110 @@ button{transition:background .14s ease,color .14s ease,border-color .14s ease,op
   overflow:auto;scrollbar-width:thin;scrollbar-color:#716357 transparent;
   overscroll-behavior:contain;
 }
+/* v0.9 Source function picker and inspectable expression atoms */
+.source-import-dialog{height:auto;max-height:min(790px,92vh);width:min(690px,96vw)}
+.source-import-dialog strong{color:#f5f0ff;overflow-wrap:anywhere}
+.source-function-options{min-height:0;max-height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:7px}
+.source-function-choice{display:flex;gap:13px;align-items:center;border:1px solid #444763;background:#25283c;border-radius:9px;padding:12px 14px;cursor:pointer}
+.source-function-choice.selected{border-color:#ae91eb;background:#302a48}
+.source-function-choice input{width:17px;height:17px;accent-color:#b79aff;flex-shrink:0}
+.source-function-choice span{display:flex;flex-direction:column;gap:6px;min-width:0}
+.source-function-choice small{color:#aaa9bf;font-size:11px;line-height:1.4}
+.source-import-warning{border-left:3px solid #d2a16a;padding:8px 10px;background:#372f32}
+.canvas-node.node-source-operator{background:#28324a;border-color:#668ec1}
+.canvas-node.node-source-value{background:#263b3c;border-color:#64bba6}
+
+/* v0.9.1 — Inline canvas and node title editing.
+ * A focused title is an actual input rather than draggable node chrome.
+ * Keep editing contained in the existing heading to avoid port collisions. */
+.inline-title-trigger{
+  display:block;min-width:0;max-width:100%;width:100%;padding:2px 3px;margin:-2px -3px;
+  border:1px solid transparent;border-radius:5px;background:transparent;color:inherit;
+  font:inherit;letter-spacing:inherit;line-height:inherit;text-align:left;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text;
+}
+.inline-title-trigger:hover{background:rgba(175,151,246,.12);border-color:rgba(175,151,246,.36)}
+.inline-title-trigger:focus-visible{outline:2px solid #bba3ff;outline-offset:2px}
+.inline-title-input{
+  display:block;min-width:0;max-width:100%;width:100%;box-sizing:border-box;
+  padding:2px 3px;margin:-2px -3px;border-radius:5px;
+  border:1px solid #bba3ff;background:#17172a;color:#fff;
+  font:inherit;letter-spacing:inherit;line-height:inherit;
+  box-shadow:0 0 0 2px rgba(177,141,255,.14);outline:none;
+  text-overflow:clip;cursor:text;user-select:text;-webkit-user-select:text;
+}
+.canvas-node .node-title.inline-title-trigger,.canvas-node .node-title.inline-title-input{
+  font-size:12.5px;font-weight:710;min-width:0;max-width:100%;
+}
+.canvas-node .node-heading-text>.inline-title-trigger,
+.canvas-node .node-heading-text>.inline-title-input{flex:0 1 auto}
+.canvas-node.node-comment .note-heading .inline-title-trigger,
+.canvas-node.node-comment .note-heading .inline-title-input{
+  color:#f4dfbd;font-size:10px;font-weight:710;
+}
+.canvas-title-overlay .canvas-title-line h1{min-width:0;max-width:min(460px,45vw)}
+.canvas-title-overlay .flow-title{font-size:23px;font-weight:740;letter-spacing:-.8px;line-height:1.25}
+.canvas-title-overlay .inline-title-trigger{pointer-events:auto}
+.canvas-title-overlay .inline-title-input{pointer-events:auto;width:min(420px,44vw)}
+@media(max-width:750px){
+  .canvas-title-overlay .flow-title{font-size:18px}
+  .canvas-title-overlay .canvas-title-line h1{max-width:48vw}
+}
+
+/* The existing header rule hides its small Fit button until hover. Keep the
+ * project-name trigger visible and preserve the Fit button's original style. */
+.canvas-title-overlay .canvas-title-line .inline-title-trigger{
+  opacity:1;display:block;background:transparent;color:#f3f2ff;
+  border-color:transparent;padding:2px 3px;
+}
+.canvas-title-overlay .canvas-title-line .inline-title-trigger:hover{
+  opacity:1;background:rgba(175,151,246,.12);border-color:rgba(175,151,246,.36);
+}
+.canvas-node .inline-title-input{touch-action:auto}
+
+/* v1.0: edge-triggered, keyboard/touch accessible slide-out tool docks. */
+.top-reveal{position:absolute;top:0;right:19px;z-index:9;width:min(420px,calc(100% - 20px));height:74px;pointer-events:none}
+.bottom-reveal{position:absolute;bottom:0;left:17px;z-index:9;width:min(650px,calc(100% - 25px));max-width:calc(100% - 25px);height:87px;pointer-events:none}
+.top-reveal .reveal-tab,.bottom-reveal .reveal-tab{pointer-events:auto}
+.reveal-tab{position:absolute;border:1px solid #4a446a;background:#2a2841;color:#c9b8fa;border-radius:0 0 9px 9px;padding:6px 15px;font-size:10px;letter-spacing:.35px;font-weight:750;box-shadow:0 4px 14px #0007;cursor:pointer;z-index:2;white-space:nowrap}
+.top-tab{top:0;right:0}
+.bottom-tab{bottom:0;left:0;border-radius:9px 9px 0 0}
+.top-reveal .toolbar-top{position:absolute;top:32px;right:0;left:auto;max-width:100%;transform:translateY(-125%);opacity:0;pointer-events:none;transition:transform .22s ease,opacity .18s ease}
+/* v1.2: revealed only by hovering the tab; hides once the pointer is >15px from the toolbar (useEdgeReveal). */
+.top-reveal.is-open .toolbar-top{transform:translateY(0);opacity:1;pointer-events:auto}
+.bottom-reveal .canvas-bottom-left{position:absolute;left:0;bottom:28px;max-width:100%;transform:translateY(145%);opacity:0;pointer-events:none;transition:transform .22s ease,opacity .18s ease}
+.bottom-reveal.is-open .canvas-bottom-left{transform:translateY(0);opacity:1;pointer-events:auto}
+.bottom-reveal .simulator-controls{max-width:calc(100vw - 35px);overflow-x:auto}
+.reveal-tab:focus-visible{outline:2px solid #c9b8fa;outline-offset:2px}
+.canvas-node.node-source-call{background:linear-gradient(145deg,#372641,#232036);border-color:#855d99}
+.canvas-node.node-source-call .custom-lang{color:#e6bdff}
+.dependency-inspector code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;color:#c5bee9;border:1px solid #4d4367;border-radius:7px;padding:10px;font-size:10px}
+.source-import-dialog .field-label select{background:#242438;color:#eeeaff;border:1px solid #4a4a68;border-radius:7px;padding:10px;max-width:100%}
+@media(hover:none){.top-reveal,.bottom-reveal{height:82px}}
+@media(prefers-reduced-motion:reduce){.top-reveal .toolbar-top,.bottom-reveal .canvas-bottom-left{transition:none}}
+
+.dependency-source-preview{margin-top:13px;border:1px solid #47435e;border-radius:8px;padding:9px;color:#c1bce0;font-size:11px}
+.dependency-source-preview summary{cursor:pointer;color:#d5b9ff;line-height:1.55}
+.dependency-source-preview pre{font-size:10px;line-height:1.6;max-height:230px;max-width:100%;overflow:auto;white-space:pre;color:#b9dbd9;background:#141b29;padding:9px;border-radius:5px}
+.dependency-source-preview small{display:block;line-height:1.5;color:#8c91ac}
+
+.canvas-node:is(.node-source-loop,.node-source-switch,.node-source-try,.node-source-throw,.node-source-await){background:linear-gradient(145deg,#3c2b34,#262239);border-color:#af776f}
+/* Keep long imported file paths and call signatures inside their node cards. */
+.canvas-node .custom-node-body{min-width:0;width:100%;overflow:hidden}
+.canvas-node .custom-node-body small{max-width:100%;overflow:hidden;text-overflow:ellipsis;display:block}
+.canvas-node.node-source-call .custom-lang{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+
+/* The re-layout command is distinct from Fit: it changes node placement. */
+.auto-arrange-button{white-space:nowrap;border:1px solid #554b7c;border-radius:7px;padding:7px 9px;
+  color:#e5d7ff;background:#373052;font-weight:720;font-size:11px;cursor:pointer}
+.auto-arrange-button:hover{background:#493a70}
+.auto-arrange-button:focus-visible{outline:2px solid #c3a7ff;outline-offset:2px}
+.top-reveal{width:min(545px,calc(100% - 20px))}
+.top-reveal .toolbar-top{max-width:100%;overflow-x:auto;scrollbar-width:thin}
+
+/* A human-readable source outline without altering the user's original code. */
+.readable-outline{border:1px solid #46506b;border-radius:9px;background:#212638;margin-top:14px;padding:10px}
+.readable-outline summary{cursor:pointer;color:#d0c1ff;font-size:12px;font-weight:800}
+.readable-outline p{font-size:11px;color:#a7adc3;line-height:1.55;margin:8px 0}
+.readable-outline pre{margin:0;max-height:310px;overflow:auto;background:#151c2a;border:1px solid #2e3750;
+  border-radius:6px;padding:12px;color:#c4ebdf;font:11px/1.7 ui-monospace,Consolas,monospace;tab-size:2;white-space:pre}
